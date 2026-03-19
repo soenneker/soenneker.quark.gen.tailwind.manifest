@@ -139,6 +139,11 @@ public sealed class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGener
 
     private static string? ParseToken(string arg, string propName)
     {
+        int commaIndex = arg.IndexOf(',');
+
+        if (commaIndex >= 0)
+            arg = arg.Substring(0, commaIndex);
+
         arg = arg.Trim();
 
         if (arg.Length >= 2 && arg[0] == '"' && arg[^1] == '"')
