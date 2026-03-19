@@ -1,0 +1,39 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+    <Target Name="QuarkTailwindManifestGeneratorBuild_Imported" BeforeTargets="Build">
+        <Message Importance="high" Text="Soenneker.Quark.Gen.Tailwind.Manifest targets imported from: $(MSBuildThisFileFullPath)" />
+    </Target>
+
+    <PropertyGroup>
+        <_BuildTasksDir Condition="Exists('$(MSBuildThisFileDirectory)Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll')">$(MSBuildThisFileDirectory)</_BuildTasksDir>
+        <_BuildTasksDir Condition="'$(_BuildTasksDir)'=='' and Exists('$(MSBuildThisFileDirectory)..\buildTransitive\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll')">$(MSBuildThisFileDirectory)..\buildTransitive\</_BuildTasksDir>
+        <_BuildTasksDir Condition="'$(_BuildTasksDir)'=='' and Exists('$(MSBuildThisFileDirectory)..\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks\bin\$(Configuration)\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll')">$(MSBuildThisFileDirectory)..\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks\bin\$(Configuration)\</_BuildTasksDir>
+        <BuildTasksDllPath Condition="'$(BuildTasksDllPath)'=='' and '$(_BuildTasksDir)'!=''">$(_BuildTasksDir)Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll</BuildTasksDllPath>
+        <QuarkTailwindManifestGeneratorBuildEnabled Condition="'$(QuarkTailwindManifestGeneratorBuildEnabled)'==''">true</QuarkTailwindManifestGeneratorBuildEnabled>
+        <_QuarkTailwindManifestProjectDir>$([System.IO.Path]::GetDirectoryName('$(ProjectDir)x'))</_QuarkTailwindManifestProjectDir>
+        <_QuarkTailwindManifestProjectDir Condition="'$(_QuarkTailwindManifestProjectDir)' == ''">$(MSBuildProjectDirectory)</_QuarkTailwindManifestProjectDir>
+        <QuarkTailwindManifestOutput Condition="'$(QuarkTailwindManifestOutput)' == ''">$(_QuarkTailwindManifestProjectDir)\tailwind\tw-inline.generated.txt</QuarkTailwindManifestOutput>
+        <_QuarkTailwindManifestOutputArg Condition="'$(QuarkTailwindManifestOutput)' != ''"> --manifestOutput &quot;$(QuarkTailwindManifestOutput)&quot;</_QuarkTailwindManifestOutputArg>
+        <_QuarkTailwindManifestSourceDirsArg Condition="'$(QuarkTailwindManifestSourceDirs)' != ''"> --sourceDirs &quot;$(QuarkTailwindManifestSourceDirs)&quot;</_QuarkTailwindManifestSourceDirsArg>
+    </PropertyGroup>
+
+    <Target Name="RunQuarkTailwindManifestGeneratorBuildTasks"
+            BeforeTargets="Build"
+            Condition="'$(DesignTimeBuild)'!='true' and '$(IsCrossTargetingBuild)'!='true' and '$(QuarkTailwindManifestGeneratorBuildEnabled)'=='true'">
+
+        <Message Importance="high" Text="Running Soenneker.Quark.Gen.Tailwind.Manifest BuildTasks: projectDir=$(_QuarkTailwindManifestProjectDir) output=$(QuarkTailwindManifestOutput)" />
+        <Error Condition="'$(_QuarkTailwindManifestProjectDir)' == ''"
+               Text="Soenneker.Quark.Gen.Tailwind.Manifest: project directory could not be resolved (ProjectDir and MSBuildProjectDirectory are empty)." />
+        <Error Condition="'$(BuildTasksDllPath)'==''"
+               Text="BuildTasksDllPath was not resolved. MSBuildThisFileDirectory=$(MSBuildThisFileDirectory)" />
+        <Error Condition="!Exists('$(BuildTasksDllPath)')"
+               Text="BuildTasks DLL not found at '$(BuildTasksDllPath)'." />
+
+        <Exec WorkingDirectory="$(_QuarkTailwindManifestProjectDir)"
+              IgnoreExitCode="false"
+              ConsoleToMSBuild="true"
+              StandardOutputImportance="high"
+              StandardErrorImportance="high"
+              Command='dotnet exec &quot;$(BuildTasksDllPath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot;$(_QuarkTailwindManifestOutputArg)$(_QuarkTailwindManifestSourceDirsArg)' />
+    </Target>
+</Project>
