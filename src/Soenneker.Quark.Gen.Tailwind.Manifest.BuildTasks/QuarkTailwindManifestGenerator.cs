@@ -289,19 +289,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             LogClasses("[TailwindPrefix]", file, classNames, added, prefix, responsive, className);
         }
 
-        if (!ShouldScanGeneralClassStrings(file))
-            return;
-
-        var componentClasses = new HashSet<string>(StringComparer.Ordinal);
-        AddGeneralClassStrings(componentClasses, text);
-
-        if (componentClasses.Count == 0)
-            return;
-
-        int componentAdded = AddManifestClasses(uniqueLines, componentClasses, responsive: false);
-        componentCodeClasses += componentAdded;
-
-        LogClasses("[ComponentCode]", file, componentClasses, componentAdded);
+        // Do not scan all string literals in .cs files — they are mostly non-class (messages, keys, etc.).
+        // TailwindPrefix extraction above is the only source of classes from C#.
     }
 
     private void ProcessRazorFile(string file, string text, HashSet<string> uniqueLines, ref int razorClasses)
@@ -616,6 +605,37 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         return token.AsSpan().IndexOfAny(_standaloneTokenSpecialChars) >= 0;
     }
 
+    /// <summary>
+    /// Returns true only for tokens that look like real Tailwind class names (used when scanning
+    /// arbitrary string literals to avoid adding code fragments, paths, numbers, etc.).
+    /// </summary>
+    private static bool IsValidTailwindClassToken(ReadOnlySpan<char> token)
+    {
+        if (token.Length < 2)
+            return false;
+
+        if (token.IndexOfAny(_disallowedInTailwindClass) >= 0)
+            return false;
+
+        if (token.Slice(0, 1).IndexOfAny(_validTailwindFirstChar) < 0)
+            return false;
+
+        if (token[0] == '@' && !token.StartsWith("@container", StringComparison.Ordinal))
+            return false;
+
+        bool hasLetter = false;
+        for (int i = 0; i < token.Length; i++)
+        {
+            if (char.IsLetter(token[i]))
+            {
+                hasLetter = true;
+                break;
+            }
+        }
+
+        return hasLetter;
+    }
+
     private static void AddCandidateClassString(ISet<string> target, string value)
     {
         if (value.IsNullOrWhiteSpace())
@@ -645,9 +665,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
             tokenCount++;
 
-            var token = span[start..i].ToString();
-
-            if (LooksLikeStandaloneClassToken(token))
+            ReadOnlySpan<char> tok = span[start..i];
+            if (IsValidTailwindClassToken(tok))
                 hasStrongToken = true;
         }
 
@@ -656,11 +675,9 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         if (tokenCount == 1)
         {
-            var single = span.ToString();
-
-            if (LooksLikeStandaloneClassToken(single))
-                target.Add(single);
-
+            ReadOnlySpan<char> single = span.Trim();
+            if (IsValidTailwindClassToken(single))
+                target.Add(single.ToString());
             return;
         }
 
@@ -683,11 +700,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 continue;
 
             ReadOnlySpan<char> token = span[start..i];
-
-            if (token[0] == '@')
-                continue;
-
-            if (token.IndexOfAny(_invalidTokenChars) >= 0)
+            if (!IsValidTailwindClassToken(token))
                 continue;
 
             target.Add(token.ToString());
@@ -711,6 +724,16 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static readonly SearchValues<char> _invalidTokenChars = SearchValues.Create("{};,");
     private static readonly SearchValues<char> _standaloneTokenSpecialChars = SearchValues.Create("-:/[]()!._");
+
+    /// <summary>
+    /// Characters that must not appear in a Tailwind class token (avoids C#/code fragments).
+    /// </summary>
+    private static readonly SearchValues<char> _disallowedInTailwindClass = SearchValues.Create("()'$=;,\" \t");
+
+    /// <summary>
+    /// Valid first character for a Tailwind class token (letter, important, arbitrary, variant, etc.).
+    /// </summary>
+    private static readonly SearchValues<char> _validTailwindFirstChar = SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ![-:@");
 
     private static Dictionary<string, string> ParseArgs(string[] args)
     {
