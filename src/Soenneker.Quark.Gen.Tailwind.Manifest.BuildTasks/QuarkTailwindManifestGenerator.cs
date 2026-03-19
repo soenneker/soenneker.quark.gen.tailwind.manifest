@@ -1,9 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Soenneker.Extensions.String;
 using Soenneker.Extensions.Task;
@@ -12,32 +6,93 @@ using Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.Abstract;
 using Soenneker.Utils.Directory.Abstract;
 using Soenneker.Utils.File.Abstract;
 using Soenneker.Utils.PooledStringBuilders;
+using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
 
-///<inheritdoc cref="IQuarkTailwindManifestGenerator"/>
-public sealed class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGenerator
+/// <inheritdoc cref="IQuarkTailwindManifestGenerator"/>
+public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGenerator
 {
     private const string _inlineGeneratedTxtFileName = "tw-inline.generated.txt";
 
-    private static readonly Regex ClassWithAttrRegex = new(
-        @"\[(?<attr>[^\]]*TailwindPrefix[^\]]*)\]\s*" +
-        @"(?:(?:public|internal|private|protected)\s+)?(?:sealed\s+)?class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b(?<after>[^{]*)\{",
-        RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly string[] _responsivePrefixes = ["", "sm:", "md:", "lg:", "xl:", "2xl:"];
 
-    private static readonly Regex TailwindPrefixArgsRegex = new(
+    [GeneratedRegex(
+        @"\[(?<attr>[^\]]*TailwindPrefix[^\]]*)\]\s*(?:(?:public|internal|private|protected)\s+)?(?:sealed\s+)?class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b(?<after>[^{]*)\{",
+        RegexOptions.Singleline)]
+    private static partial Regex ClassWithAttrRegex();
+
+    [GeneratedRegex(
         @"TailwindPrefix\s*\(\s*""(?<prefix>[^""]+)""(?:\s*,\s*Responsive\s*=\s*(?<resp>true|false))?\s*\)",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex TailwindPrefixArgsRegex();
 
-    private static readonly Regex ChainPropRegex = new(
-        @"public\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s+(?<prop>[A-Za-z_][A-Za-z0-9_]*)\s*=>\s*Chain\s*\(\s*(?<arg>[^)]+)\)\s*;",
-        RegexOptions.Compiled | RegexOptions.Singleline);
+    [GeneratedRegex(
+        @"public\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s+(?<prop>[A-Za-z_][A-Za-z0-9_]*)\s*=>\s*(?<method>Chain[A-Za-z]*)\s*\(\s*(?<args>[^;]*)\)\s*;",
+        RegexOptions.Singleline)]
+    private static partial Regex ChainPropRegex();
+
+    [GeneratedRegex(
+        @"\b(?:class|Class)\s*=\s*""(?<classes>[^""]+)""",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex RazorClassAttributeRegex();
+
+    [GeneratedRegex(
+        @"AppendClass\s*\(\s*ref\s+[A-Za-z_][A-Za-z0-9_]*\s*,\s*""(?<classes>(?:[^""\\]|\\.)*)""\s*\)",
+        RegexOptions.Singleline)]
+    private static partial Regex AppendClassLiteralRegex();
+
+    [GeneratedRegex(
+        @"(?<!@)""(?<value>(?:[^""\\]|\\.)*)""",
+        RegexOptions.Singleline)]
+    private static partial Regex RegularStringLiteralRegex();
+
+    [GeneratedRegex(
+        "@\"(?<value>(?:[^\"]|\"\")*)\"",
+        RegexOptions.Singleline)]
+    private static partial Regex VerbatimStringLiteralRegex();
+
+    [GeneratedRegex(
+        @"/\*.*?\*/",
+        RegexOptions.Singleline)]
+    private static partial Regex CStyleCommentRegex();
+
+    [GeneratedRegex(
+        @"//.*?$",
+        RegexOptions.Multiline)]
+    private static partial Regex CppStyleCommentRegex();
+
+    [GeneratedRegex(
+        @"@\*.*?\*@",
+        RegexOptions.Singleline)]
+    private static partial Regex RazorCommentRegex();
+
+    [GeneratedRegex(
+        @"<!--.*?-->",
+        RegexOptions.Singleline)]
+    private static partial Regex HtmlCommentRegex();
+
+    private static readonly HashSet<string> StandaloneClassTokens = new(StringComparer.Ordinal)
+    {
+        "absolute", "block", "container", "contents", "disabled", "dropend", "fixed", "flex", "grid", "group", "hidden", "inline",
+        "italic", "outline", "peer", "preview", "relative", "ring", "shadow", "show", "sr-only", "static", "sticky", "truncate",
+        "underline", "visible", "invisible"
+    };
 
     private readonly ILogger<QuarkTailwindManifestGenerator> _logger;
     private readonly IFileUtil _fileUtil;
     private readonly IDirectoryUtil _directoryUtil;
 
-    public QuarkTailwindManifestGenerator(ILogger<QuarkTailwindManifestGenerator> logger, IFileUtil fileUtil, IDirectoryUtil directoryUtil)
+    public QuarkTailwindManifestGenerator(
+        ILogger<QuarkTailwindManifestGenerator> logger,
+        IFileUtil fileUtil,
+        IDirectoryUtil directoryUtil)
     {
         _logger = logger;
         _fileUtil = fileUtil;
@@ -52,10 +107,12 @@ public sealed class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGener
         if (!map.TryGetValue("--projectDir", out string? projectDir) || projectDir.IsNullOrWhiteSpace())
             return Fail("Missing required --projectDir");
 
-        projectDir = Path.GetFullPath(projectDir.Trim()
-                                                .Trim('"'));
+        projectDir = NormalizeFullPath(projectDir);
 
-        var sourceRoots = new List<string> { projectDir };
+        var sourceRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            projectDir
+        };
 
         if (map.TryGetValue("--sourceDirs", out string? sourceDirs) && sourceDirs.HasContent())
         {
@@ -64,54 +121,293 @@ public sealed class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGener
                 if (dir.Length == 0)
                     continue;
 
-                string full = Path.GetFullPath(dir.Trim()
-                                                  .Trim('"'));
-
-                if (!sourceRoots.Contains(full))
-                    sourceRoots.Add(full);
+                sourceRoots.Add(NormalizeFullPath(dir));
             }
         }
 
         string? projectParent = Path.GetDirectoryName(projectDir);
 
-        if (projectParent.HasContent() && await _directoryUtil.Exists(projectParent, cancellationToken)
-                                                              .NoSync() && !sourceRoots.Contains(projectParent))
+        if (projectParent.HasContent() && await _directoryUtil.Exists(projectParent, cancellationToken).NoSync())
             sourceRoots.Add(projectParent);
 
         string outputPath = map.TryGetValue("--manifestOutput", out string? manifestOutput) && manifestOutput.HasContent()
-            ? Path.GetFullPath(manifestOutput.Trim()
-                                             .Trim('"'))
+            ? NormalizeFullPath(manifestOutput)
             : Path.Combine(projectDir, "tailwind", _inlineGeneratedTxtFileName);
 
         string? outputDir = Path.GetDirectoryName(outputPath);
 
         if (outputDir.HasContent())
-        {
-            await _directoryUtil.Create(outputDir, log: false, cancellationToken)
-                                .NoSync();
-        }
+            await _directoryUtil.Create(outputDir, log: false, cancellationToken).NoSync();
 
         Console.WriteLine($"QuarkTailwindManifestGenerator: projectDir={projectDir}, sourceRoots={sourceRoots.Count}, output={outputPath}");
 
-        await GenerateInlineManifest(sourceRoots, outputPath, cancellationToken)
-            .NoSync();
+        await GenerateInlineManifest(sourceRoots, outputPath, cancellationToken).NoSync();
 
         return 0;
     }
 
+    private async Task GenerateInlineManifest(HashSet<string> sourceRoots, string outputPath, CancellationToken cancellationToken)
+    {
+        var uniqueLines = new HashSet<string>(StringComparer.Ordinal);
+        var totalFilesScanned = 0;
+        var tailwindPrefixClasses = 0;
+        var componentCodeClasses = 0;
+        var razorClasses = 0;
+
+        foreach (string sourceRoot in sourceRoots)
+        {
+            if (!await _directoryUtil.Exists(sourceRoot, cancellationToken).NoSync())
+            {
+                Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: skipping missing source root: {sourceRoot}");
+                continue;
+            }
+
+            Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: scanning source root: {sourceRoot}");
+
+            List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken).NoSync();
+
+            foreach (string file in csFiles)
+            {
+                if (IsExcluded(file))
+                    continue;
+
+                cancellationToken.ThrowIfCancellationRequested();
+                totalFilesScanned++;
+
+                string? text = await TryReadFile(file, isRazor: false, cancellationToken).NoSync();
+
+                if (text is null)
+                    continue;
+
+                ProcessCsFile(file, text, uniqueLines, ref tailwindPrefixClasses, ref componentCodeClasses);
+            }
+
+            List<string> razorFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".razor", recursive: true, cancellationToken).NoSync();
+
+            foreach (string file in razorFiles)
+            {
+                if (IsExcluded(file))
+                    continue;
+
+                cancellationToken.ThrowIfCancellationRequested();
+                totalFilesScanned++;
+
+                string? text = await TryReadFile(file, isRazor: true, cancellationToken).NoSync();
+
+                if (text is null)
+                    continue;
+
+                ProcessRazorFile(file, text, uniqueLines, ref razorClasses);
+            }
+        }
+
+        var final = new List<string>(uniqueLines);
+        final.Sort(StringComparer.Ordinal);
+
+        Console.WriteLine(
+            $"QuarkTailwindManifestGenerator [inline]: summary: {totalFilesScanned} source files scanned, {final.Count} class names (TailwindPrefix={tailwindPrefixClasses}, ComponentCode={componentCodeClasses}, Razor={razorClasses})");
+        Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: output -> {outputPath}");
+
+        if (final.Count > 0)
+        {
+            int sampleCount = Math.Min(15, final.Count);
+            Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: sample classes: [{string.Join(", ", final.GetRange(0, sampleCount))}]");
+        }
+
+        var sb = new PooledStringBuilder(4096);
+        sb.AppendLine("# Auto-generated by Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks");
+        sb.AppendLine("# Do not edit manually. Class names for Tailwind @source to scan.");
+
+        foreach (string line in final)
+            sb.AppendLine(line);
+
+        await _fileUtil.Write(outputPath, sb.ToStringAndDispose(), cancellationToken: cancellationToken).NoSync();
+    }
+
+    private async ValueTask<string?> TryReadFile(string file, bool isRazor, CancellationToken cancellationToken)
+    {
+        try
+        {
+            string text = await _fileUtil.Read(file, log: false, cancellationToken).NoSync();
+            return isRazor ? StripRazorComments(text) : StripComments(text);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to read {Kind} file {File}", isRazor ? "razor" : "source", file);
+            return null;
+        }
+    }
+
+    private void ProcessCsFile(string file, string text, HashSet<string> uniqueLines, ref int tailwindPrefixClasses, ref int componentCodeClasses)
+    {
+        foreach (Match match in ClassWithAttrRegex().Matches(text))
+        {
+            string attrBlob = match.Groups["attr"].Value;
+            Match attrMatch = TailwindPrefixArgsRegex().Match(attrBlob);
+
+            if (!attrMatch.Success)
+                continue;
+
+            string prefix = attrMatch.Groups["prefix"].Value;
+            bool responsive = !attrMatch.Groups["resp"].Success ||
+                              !bool.TryParse(attrMatch.Groups["resp"].Value, out bool parsedResponsive) ||
+                              parsedResponsive;
+
+            string className = match.Groups["name"].Value;
+            int braceIdx = match.Index + match.Length - 1;
+            string? body = TryGetClassBody(text, braceIdx);
+
+            if (body is null)
+                continue;
+
+            var classNames = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (Match propMatch in ChainPropRegex().Matches(body))
+            {
+                string typeName = propMatch.Groups["type"].Value;
+
+                if (!string.Equals(typeName, className, StringComparison.Ordinal))
+                    continue;
+
+                string prop = propMatch.Groups["prop"].Value;
+                string method = propMatch.Groups["method"].Value;
+                string argsText = propMatch.Groups["args"].Value;
+
+                List<string> argsList = SplitArguments(argsText);
+                string? classValue = ResolveClassName(prefix, method, argsList, prop);
+
+                if (classValue.HasContent())
+                    classNames.Add(classValue);
+            }
+
+            if (classNames.Count == 0)
+                continue;
+
+            int added = AddManifestClasses(uniqueLines, classNames, responsive);
+            tailwindPrefixClasses += added;
+
+            LogClasses("[TailwindPrefix]", file, classNames, added, prefix, responsive, className);
+        }
+
+        if (!ShouldScanGeneralClassStrings(file))
+            return;
+
+        var componentClasses = new HashSet<string>(StringComparer.Ordinal);
+        AddGeneralClassStrings(componentClasses, text);
+
+        if (componentClasses.Count == 0)
+            return;
+
+        int componentAdded = AddManifestClasses(uniqueLines, componentClasses, responsive: false);
+        componentCodeClasses += componentAdded;
+
+        LogClasses("[ComponentCode]", file, componentClasses, componentAdded);
+    }
+
+    private void ProcessRazorFile(string file, string text, HashSet<string> uniqueLines, ref int razorClasses)
+    {
+        var classNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (Match match in RazorClassAttributeRegex().Matches(text))
+        {
+            AddClassTokens(classNames, match.Groups["classes"].Value);
+        }
+
+        foreach (Match match in AppendClassLiteralRegex().Matches(text))
+        {
+            AddClassTokens(classNames, match.Groups["classes"].Value);
+        }
+
+        AddGeneralClassStrings(classNames, text);
+
+        if (classNames.Count == 0)
+            return;
+
+        int added = AddManifestClasses(uniqueLines, classNames, responsive: false);
+        razorClasses += added;
+
+        LogClasses("[Razor]", file, classNames, added);
+    }
+
+    private void LogClasses(string tag, string file, HashSet<string> classNames, int added, string? prefix = null, bool? responsive = null, string? className = null)
+    {
+        var classList = new List<string>(classNames);
+        classList.Sort(StringComparer.Ordinal);
+
+        if (prefix is not null && responsive is not null && className is not null)
+        {
+            Console.WriteLine(
+                $"QuarkTailwindManifestGenerator [inline]: {tag} {file} -> class {className}, prefix=\"{prefix}\", responsive={responsive.Value}, classes=[{string.Join(", ", classList)}], lines added={added}");
+            return;
+        }
+
+        Console.WriteLine(
+            $"QuarkTailwindManifestGenerator [inline]: {tag} {file} -> classes=[{string.Join(", ", classList)}], lines added={added}");
+    }
+
+    private static int AddManifestClasses(HashSet<string> uniqueLines, HashSet<string> classes, bool responsive)
+    {
+        var added = 0;
+
+        if (responsive)
+        {
+            foreach (string breakpoint in _responsivePrefixes)
+            {
+                foreach (string classValue in classes)
+                {
+                    if (uniqueLines.Add(breakpoint + classValue))
+                        added++;
+                }
+            }
+
+            return added;
+        }
+
+        foreach (string classValue in classes)
+        {
+            if (uniqueLines.Add(classValue))
+                added++;
+        }
+
+        return added;
+    }
+
     private static bool IsExcluded(string fullPath)
     {
-        string path = fullPath.Replace('\\', '/');
+        return ContainsPathSegment(fullPath, "/bin/") ||
+               ContainsPathSegment(fullPath, "/obj/") ||
+               ContainsPathSegment(fullPath, "/node_modules/") ||
+               ContainsPathSegment(fullPath, "/.git/") ||
+               ContainsPathSegment(fullPath, "/tailwind/");
+    }
 
-        return path.Contains("/bin/", StringComparison.OrdinalIgnoreCase) || path.Contains("/obj/", StringComparison.OrdinalIgnoreCase) ||
-               path.Contains("/node_modules/", StringComparison.OrdinalIgnoreCase) || path.Contains("/.git/", StringComparison.OrdinalIgnoreCase) ||
-               path.Contains("/tailwind/", StringComparison.OrdinalIgnoreCase);
+    private static bool ShouldScanGeneralClassStrings(string file)
+    {
+        return ContainsPathSegment(file, "/Components/");
+    }
+
+    private static bool ContainsPathSegment(string path, string normalizedSegment)
+    {
+        return path.Contains(normalizedSegment, StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(normalizedSegment.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeFullPath(string path)
+    {
+        return Path.GetFullPath(path.Trim().Trim('"'));
     }
 
     private static string StripComments(string value)
     {
-        value = Regex.Replace(value, @"/\*.*?\*/", "", RegexOptions.Singleline);
-        value = Regex.Replace(value, @"//.*?$", "", RegexOptions.Multiline);
+        value = CStyleCommentRegex().Replace(value, string.Empty);
+        value = CppStyleCommentRegex().Replace(value, string.Empty);
+        return value;
+    }
+
+    private static string StripRazorComments(string value)
+    {
+        value = RazorCommentRegex().Replace(value, string.Empty);
+        value = HtmlCommentRegex().Replace(value, string.Empty);
         return value;
     }
 
@@ -124,7 +420,9 @@ public sealed class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGener
             char c = text[i];
 
             if (c == '{')
+            {
                 depth++;
+            }
             else if (c == '}')
             {
                 depth--;
@@ -139,15 +437,13 @@ public sealed class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGener
 
     private static string? ParseToken(string arg, string propName)
     {
-        int commaIndex = arg.IndexOf(',');
-
-        if (commaIndex >= 0)
-            arg = arg.Substring(0, commaIndex);
-
         arg = arg.Trim();
 
         if (arg.Length >= 2 && arg[0] == '"' && arg[^1] == '"')
             return arg.Substring(1, arg.Length - 2);
+
+        if (arg.Length >= 3 && arg[0] == '@' && arg[1] == '"' && arg[^1] == '"')
+            return arg.Substring(2, arg.Length - 3).Replace("\"\"", "\"", StringComparison.Ordinal);
 
         if (arg.Contains('.', StringComparison.Ordinal))
             return propName.ToLowerInvariantFast();
@@ -155,158 +451,278 @@ public sealed class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGener
         return propName.ToLowerInvariantFast();
     }
 
-    private async Task GenerateInlineManifest(List<string> sourceRoots, string outputPath, CancellationToken cancellationToken)
+    private static List<string> SplitArguments(string args)
     {
-        var uniqueLines = new HashSet<string>(StringComparer.Ordinal);
-        var totalFilesScanned = 0;
-        var tailwindPrefixClasses = 0;
+        var results = new List<string>(4);
 
-        foreach (string sourceRoot in sourceRoots)
+        if (args.IsNullOrWhiteSpace())
+            return results;
+
+        var start = 0;
+        var parenDepth = 0;
+        var bracketDepth = 0;
+        var braceDepth = 0;
+        var inString = false;
+
+        for (var i = 0; i < args.Length; i++)
         {
-            if (!await _directoryUtil.Exists(sourceRoot, cancellationToken)
-                                     .NoSync())
+            char c = args[i];
+
+            if (c == '"' && (i == 0 || args[i - 1] != '\\'))
             {
-                Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: skipping missing source root: {sourceRoot}");
+                inString = !inString;
                 continue;
             }
 
-            Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: scanning source root: {sourceRoot}");
+            if (inString)
+                continue;
 
-            List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken)
-                                                       .NoSync();
-
-            foreach (string file in csFiles)
+            switch (c)
             {
-                if (IsExcluded(file))
-                    continue;
-
-                totalFilesScanned++;
-                cancellationToken.ThrowIfCancellationRequested();
-
-                string text;
-
-                try
-                {
-                    text = await _fileUtil.Read(file, log: false, cancellationToken)
-                                          .NoSync();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to read source file {File}", file);
-                    continue;
-                }
-
-                text = StripComments(text);
-
-                foreach (Match match in ClassWithAttrRegex.Matches(text))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    string attrBlob = match.Groups["attr"].Value;
-                    Match attrMatch = TailwindPrefixArgsRegex.Match(attrBlob);
-
-                    if (!attrMatch.Success)
-                        continue;
-
-                    string prefix = attrMatch.Groups["prefix"].Value;
-                    var responsive = true;
-
-                    if (attrMatch.Groups["resp"].Success && bool.TryParse(attrMatch.Groups["resp"].Value, out bool parsedResponsive))
-                        responsive = parsedResponsive;
-
-                    string className = match.Groups["name"].Value;
-                    int braceIdx = match.Index + match.Length - 1;
-                    string? body = TryGetClassBody(text, braceIdx);
-
-                    if (body is null)
-                        continue;
-
-                    var tokens = new HashSet<string>(StringComparer.Ordinal);
-
-                    foreach (Match propMatch in ChainPropRegex.Matches(body))
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    parenDepth--;
+                    break;
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    bracketDepth--;
+                    break;
+                case '{':
+                    braceDepth++;
+                    break;
+                case '}':
+                    braceDepth--;
+                    break;
+                case ',' when parenDepth == 0 && bracketDepth == 0 && braceDepth == 0:
                     {
-                        string typeName = propMatch.Groups["type"].Value;
+                        if (i > start)
+                            results.Add(args.Substring(start, i - start).Trim());
 
-                        if (!string.Equals(typeName, className, StringComparison.Ordinal))
-                            continue;
-
-                        string prop = propMatch.Groups["prop"].Value;
-                        string arg = propMatch.Groups["arg"].Value;
-                        string? token = ParseToken(arg, prop);
-
-                        if (token.HasContent())
-                            tokens.Add(token);
+                        start = i + 1;
+                        break;
                     }
-
-                    if (tokens.Count == 0)
-                        continue;
-
-                    var tokenList = new List<string>(tokens);
-                    tokenList.Sort(StringComparer.Ordinal);
-                    var added = 0;
-
-                    if (responsive)
-                    {
-                        foreach (string breakpoint in new[] { "", "sm:", "md:", "lg:", "xl:", "2xl:" })
-                        {
-                            foreach (string token in tokenList)
-                            {
-                                uniqueLines.Add(breakpoint + prefix + token);
-                                added++;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        foreach (string token in tokenList)
-                        {
-                            uniqueLines.Add(prefix + token);
-                            added++;
-                        }
-                    }
-
-                    tailwindPrefixClasses += added;
-
-                    Console.WriteLine(
-                        $"QuarkTailwindManifestGenerator [inline]: [TailwindPrefix] {file} -> class {className}, prefix=\"{prefix}\", responsive={responsive}, tokens=[{string.Join(", ", tokenList)}], lines added={added}");
-                }
             }
         }
 
-        var final = new List<string>(uniqueLines);
-        final.Sort(StringComparer.Ordinal);
-
-        Console.WriteLine(
-            $"QuarkTailwindManifestGenerator [inline]: summary: {totalFilesScanned} .cs files scanned, {final.Count} class names (TailwindPrefix={tailwindPrefixClasses})");
-        Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: output -> {outputPath}");
-
-        if (final.Count > 0)
+        if (start < args.Length)
         {
-            int sampleCount = Math.Min(15, final.Count);
-            List<string> sample = final.GetRange(0, sampleCount);
-            Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: sample classes: [{string.Join(", ", sample)}]");
+            string last = args.Substring(start).Trim();
+
+            if (last.Length > 0)
+                results.Add(last);
         }
 
-        var sb = new PooledStringBuilder(4096);
-        sb.AppendLine("# Auto-generated by Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks");
-        sb.AppendLine("# Do not edit manually. Class names for Tailwind @source to scan.");
-
-        foreach (string line in final)
-            sb.AppendLine(line);
-
-        await _fileUtil.Write(outputPath, sb.ToStringAndDispose(), cancellationToken: cancellationToken)
-                       .NoSync();
+        return results;
     }
+
+    private static string BuildPrefixedClass(string prefix, string token)
+    {
+        if (token.IsNullOrWhiteSpace())
+            return token;
+
+        if (prefix.IsNullOrWhiteSpace())
+            return token;
+
+        if (prefix.EndsWith("-", StringComparison.Ordinal) || prefix.EndsWith(":", StringComparison.Ordinal))
+            return prefix + token;
+
+        if (string.Equals(prefix, token, StringComparison.Ordinal))
+            return prefix;
+
+        return $"{prefix}-{token}";
+    }
+
+    private static string? ResolveClassName(string prefix, string methodName, List<string> args, string propName)
+    {
+        if (args.Count == 0)
+            return null;
+
+        if (string.Equals(methodName, "ChainValue", StringComparison.Ordinal))
+        {
+            string? token = ParseToken(args[0], propName);
+            return token.HasContent() ? BuildPrefixedClass(prefix, token) : null;
+        }
+
+        if (!string.Equals(methodName, "Chain", StringComparison.Ordinal))
+            return null;
+
+        if (args.Count == 1)
+        {
+            string? token = ParseToken(args[0], propName);
+            return token.HasContent() ? BuildPrefixedClass(prefix, token) : null;
+        }
+
+        string? utility = ParseToken(args[0], propName);
+
+        if (utility.IsNullOrWhiteSpace())
+            return null;
+
+        string? value = ParseToken(args[1], propName);
+
+        if (value.IsNullOrWhiteSpace())
+            return BuildPrefixedClass(prefix, utility);
+
+        return BuildPrefixedClass(prefix, $"{utility}-{value}");
+    }
+
+    private static void AddClassTokens(ISet<string> target, string classList)
+    {
+        if (classList.IsNullOrWhiteSpace())
+            return;
+
+        ReadOnlySpan<char> span = classList.AsSpan().Trim();
+
+        if (span.Length == 0 || span[0] == '@')
+            return;
+
+        var i = 0;
+
+        while (i < span.Length)
+        {
+            while (i < span.Length && char.IsWhiteSpace(span[i]))
+                i++;
+
+            int start = i;
+
+            while (i < span.Length && !char.IsWhiteSpace(span[i]))
+                i++;
+
+            if (i > start)
+                target.Add(span[start..i].ToString());
+        }
+    }
+
+    private static bool LooksLikeStandaloneClassToken(string token)
+    {
+        if (token.IsNullOrWhiteSpace())
+            return false;
+
+        if (token.StartsWith("@", StringComparison.Ordinal) && !token.StartsWith("@container", StringComparison.Ordinal))
+            return false;
+
+        if (token.AsSpan().IndexOfAny(_invalidTokenChars) >= 0)
+            return false;
+
+        if (token.StartsWith("q-", StringComparison.Ordinal) || token.StartsWith("@container", StringComparison.Ordinal))
+            return true;
+
+        if (StandaloneClassTokens.Contains(token))
+            return true;
+
+        return token.AsSpan().IndexOfAny(_standaloneTokenSpecialChars) >= 0;
+    }
+
+    private static void AddCandidateClassString(ISet<string> target, string value)
+    {
+        if (value.IsNullOrWhiteSpace())
+            return;
+
+        ReadOnlySpan<char> span = value.AsSpan().Trim();
+
+        if (span.Length == 0 || span[0] == '@')
+            return;
+
+        var hasStrongToken = false;
+        var tokenCount = 0;
+        var i = 0;
+
+        while (i < span.Length)
+        {
+            while (i < span.Length && char.IsWhiteSpace(span[i]))
+                i++;
+
+            int start = i;
+
+            while (i < span.Length && !char.IsWhiteSpace(span[i]))
+                i++;
+
+            if (i <= start)
+                continue;
+
+            tokenCount++;
+
+            var token = span[start..i].ToString();
+
+            if (LooksLikeStandaloneClassToken(token))
+                hasStrongToken = true;
+        }
+
+        if (tokenCount == 0)
+            return;
+
+        if (tokenCount == 1)
+        {
+            var single = span.ToString();
+
+            if (LooksLikeStandaloneClassToken(single))
+                target.Add(single);
+
+            return;
+        }
+
+        if (!hasStrongToken)
+            return;
+
+        i = 0;
+
+        while (i < span.Length)
+        {
+            while (i < span.Length && char.IsWhiteSpace(span[i]))
+                i++;
+
+            int start = i;
+
+            while (i < span.Length && !char.IsWhiteSpace(span[i]))
+                i++;
+
+            if (i <= start)
+                continue;
+
+            ReadOnlySpan<char> token = span[start..i];
+
+            if (token[0] == '@')
+                continue;
+
+            if (token.IndexOfAny(_invalidTokenChars) >= 0)
+                continue;
+
+            target.Add(token.ToString());
+        }
+    }
+
+    private static void AddGeneralClassStrings(ISet<string> target, string text)
+    {
+        foreach (Match match in VerbatimStringLiteralRegex().Matches(text))
+        {
+            string value = match.Groups["value"].Value.Replace("\"\"", "\"", StringComparison.Ordinal);
+            AddCandidateClassString(target, value);
+        }
+
+        foreach (Match match in RegularStringLiteralRegex().Matches(text))
+        {
+            string value = match.Groups["value"].Value.Replace("\\\"", "\"", StringComparison.Ordinal);
+            AddCandidateClassString(target, value);
+        }
+    }
+
+    private static readonly SearchValues<char> _invalidTokenChars = SearchValues.Create("{};,");
+    private static readonly SearchValues<char> _standaloneTokenSpecialChars = SearchValues.Create("-:/[]()!._");
 
     private static Dictionary<string, string> ParseArgs(string[] args)
     {
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        for (var i = 0; i < args.Length; i++)
+        var map = new Dictionary<string, string>(Math.Max(4, args.Length / 2), StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < args.Length - 1; i++)
         {
-            if (args[i]
-                    .StartsWith("--", StringComparison.Ordinal) && i + 1 < args.Length)
+            string arg = args[i];
+
+            if (arg.Length > 2 && arg[0] == '-' && arg[1] == '-')
             {
-                map[args[i]] = args[i + 1];
+                map[arg] = args[i + 1];
                 i++;
             }
         }
