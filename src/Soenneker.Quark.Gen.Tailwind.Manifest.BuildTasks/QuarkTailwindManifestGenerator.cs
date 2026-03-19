@@ -516,6 +516,9 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (prefix.IsNullOrWhiteSpace())
             return token;
 
+        if (token.StartsWith(prefix + "-", StringComparison.Ordinal))
+            return token;
+
         if (prefix.EndsWith("-", StringComparison.Ordinal) || prefix.EndsWith(":", StringComparison.Ordinal))
             return prefix + token;
 
@@ -554,6 +557,9 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         if (value.IsNullOrWhiteSpace())
             return BuildPrefixedClass(prefix, utility);
+
+        if (string.Equals(utility, "display", StringComparison.Ordinal))
+            return value;
 
         return BuildPrefixedClass(prefix, $"{utility}-{value}");
     }
