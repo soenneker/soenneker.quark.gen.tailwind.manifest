@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Soenneker.Extensions.String;
 using Soenneker.Extensions.Task;
-using Soenneker.Extensions.ValueTask;
 using Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.Abstract;
 using Soenneker.Utils.Directory.Abstract;
 using Soenneker.Utils.File.Abstract;
@@ -13,6 +12,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Soenneker.Extensions.ValueTask;
 
 namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
 
@@ -122,7 +122,6 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         _logger.LogInformation("Starting Tailwind manifest generation for project {ProjectDir}.", projectDir);
         _logger.LogInformation("Generating inline Tailwind manifest from {SourceRootCount} source roots to {OutputPath}.", sourceRoots.Count, outputPath);
-        Console.WriteLine($"QuarkTailwindManifestGenerator: projectDir={projectDir}, sourceRoots={sourceRoots.Count}, output={outputPath}");
 
         await GenerateInlineManifest(sourceRoots, outputPath, cancellationToken)
             .NoSync();
@@ -144,12 +143,11 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             if (!await _directoryUtil.Exists(sourceRoot, cancellationToken)
                                      .NoSync())
             {
-                Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: skipping missing source root: {sourceRoot}");
+                _logger.LogWarning("Skipping missing source root {SourceRoot}.", sourceRoot);
                 continue;
             }
 
             _logger.LogInformation("Scanning source root {SourceRoot} for Tailwind classes.", sourceRoot);
-            Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: scanning source root: {sourceRoot}");
 
             List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken)
                                                        .NoSync();
@@ -195,19 +193,14 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         var final = new List<string>(uniqueLines);
         final.Sort(StringComparer.Ordinal);
 
-        Console.WriteLine(
-            $"QuarkTailwindManifestGenerator [inline]: summary: {totalFilesScanned} source files scanned, {final.Count} class names (TailwindPrefix={tailwindPrefixClasses}, ComponentCode={componentCodeClasses}, Razor={razorClasses})");
-        Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: output -> {outputPath}");
         _logger.LogInformation(
-            "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names found, output {OutputPath}.",
-            totalFilesScanned,
-            final.Count,
-            outputPath);
+            "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names (TailwindPrefix={TailwindPrefixCount}, ComponentCode={ComponentCodeCount}, Razor={RazorCount}), output {OutputPath}.",
+            totalFilesScanned, final.Count, tailwindPrefixClasses, componentCodeClasses, razorClasses, outputPath);
 
         if (final.Count > 0)
         {
             int sampleCount = Math.Min(15, final.Count);
-            Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: sample classes: [{string.Join(", ", final.GetRange(0, sampleCount))}]");
+            _logger.LogInformation("Sample class names: {SampleClasses}", string.Join(", ", final.GetRange(0, sampleCount)));
         }
 
         var sb = new PooledStringBuilder(4096);
@@ -232,7 +225,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to read {Kind} file {File}", isRazor ? "razor" : "source", file);
+            _logger.LogInformation(ex, "Failed to read {Kind} file {File}", isRazor ? "razor" : "source", file);
             return null;
         }
     }
@@ -329,12 +322,12 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         if (prefix is not null && responsive is not null && className is not null)
         {
-            Console.WriteLine(
-                $"QuarkTailwindManifestGenerator [inline]: {tag} {file} -> class {className}, prefix=\"{prefix}\", responsive={responsive.Value}, classes=[{string.Join(", ", classList)}], lines added={added}");
+            _logger.LogInformation("{Tag} {File} -> class {ClassName}, prefix={Prefix}, responsive={Responsive}, classes=[{Classes}], lines added={Added}", tag,
+                file, className, prefix, responsive.Value, string.Join(", ", classList), added);
             return;
         }
 
-        Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: {tag} {file} -> classes=[{string.Join(", ", classList)}], lines added={added}");
+        _logger.LogInformation("{Tag} {File} -> classes=[{Classes}], lines added={Added}", tag, file, string.Join(", ", classList), added);
     }
 
     private static int AddManifestClasses(HashSet<string> uniqueLines, HashSet<string> classes, bool responsive)
