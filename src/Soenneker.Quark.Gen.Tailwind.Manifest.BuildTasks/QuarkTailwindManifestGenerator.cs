@@ -120,11 +120,14 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             await _directoryUtil.Create(outputDir, log: false, cancellationToken)
                                 .NoSync();
 
+        _logger.LogInformation("Starting Tailwind manifest generation for project {ProjectDir}.", projectDir);
+        _logger.LogInformation("Generating inline Tailwind manifest from {SourceRootCount} source roots to {OutputPath}.", sourceRoots.Count, outputPath);
         Console.WriteLine($"QuarkTailwindManifestGenerator: projectDir={projectDir}, sourceRoots={sourceRoots.Count}, output={outputPath}");
 
         await GenerateInlineManifest(sourceRoots, outputPath, cancellationToken)
             .NoSync();
 
+        _logger.LogInformation("Completed Tailwind manifest generation for project {ProjectDir}.", projectDir);
         return 0;
     }
 
@@ -145,6 +148,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 continue;
             }
 
+            _logger.LogInformation("Scanning source root {SourceRoot} for Tailwind classes.", sourceRoot);
             Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: scanning source root: {sourceRoot}");
 
             List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken)
@@ -194,6 +198,11 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         Console.WriteLine(
             $"QuarkTailwindManifestGenerator [inline]: summary: {totalFilesScanned} source files scanned, {final.Count} class names (TailwindPrefix={tailwindPrefixClasses}, ComponentCode={componentCodeClasses}, Razor={razorClasses})");
         Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: output -> {outputPath}");
+        _logger.LogInformation(
+            "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names found, output {OutputPath}.",
+            totalFilesScanned,
+            final.Count,
+            outputPath);
 
         if (final.Count > 0)
         {
@@ -208,6 +217,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         foreach (string line in final)
             sb.AppendLine(line);
 
+        _logger.LogInformation("Writing Tailwind inline manifest to {OutputPath}.", outputPath);
         await _fileUtil.Write(outputPath, sb.ToStringAndDispose(), cancellationToken: cancellationToken)
                        .NoSync();
     }

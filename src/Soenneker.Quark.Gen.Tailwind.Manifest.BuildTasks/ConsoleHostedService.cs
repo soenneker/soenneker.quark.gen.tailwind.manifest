@@ -31,6 +31,8 @@ public sealed class ConsoleHostedService : IHostedService
         {
             Task.Run(async () =>
             {
+                _logger.LogInformation("Starting Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks...");
+
                 try
                 {
                     _exitCode = await _runner.Run(cancellationToken).AsTask();
@@ -53,6 +55,7 @@ public sealed class ConsoleHostedService : IHostedService
     public Task StopAsync(CancellationToken cancellationToken = default)
     {
         Environment.ExitCode = _exitCode.GetValueOrDefault(-1);
+        _logger.LogInformation("Stopping Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks with exit code {ExitCode}.", Environment.ExitCode);
         return Task.CompletedTask;
     }
 }
