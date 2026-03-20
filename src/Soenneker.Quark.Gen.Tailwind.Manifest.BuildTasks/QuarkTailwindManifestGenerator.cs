@@ -28,54 +28,36 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         RegexOptions.Singleline)]
     private static partial Regex ClassWithAttrRegex();
 
-    [GeneratedRegex(
-        @"TailwindPrefix\s*\(\s*""(?<prefix>[^""]+)""(?:\s*,\s*Responsive\s*=\s*(?<resp>true|false))?\s*\)",
+    [GeneratedRegex(@"TailwindPrefix\s*\(\s*""(?<prefix>[^""]+)""(?:\s*,\s*Responsive\s*=\s*(?<resp>true|false))?\s*\)",
         RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex TailwindPrefixArgsRegex();
 
-    [GeneratedRegex(
-        @"public\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s+(?<prop>[A-Za-z_][A-Za-z0-9_]*)\s*=>\s*(?<method>Chain[A-Za-z]*)\s*\(\s*(?<args>[^;]*)\)\s*;",
+    [GeneratedRegex(@"public\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s+(?<prop>[A-Za-z_][A-Za-z0-9_]*)\s*=>\s*(?<method>Chain[A-Za-z]*)\s*\(\s*(?<args>[^;]*)\)\s*;",
         RegexOptions.Singleline)]
     private static partial Regex ChainPropRegex();
 
-    [GeneratedRegex(
-        @"\b(?:class|Class)\s*=\s*""(?<classes>[^""]+)""",
-        RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    [GeneratedRegex(@"\b(?:class|Class)\s*=\s*""(?<classes>[^""]+)""", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex RazorClassAttributeRegex();
 
-    [GeneratedRegex(
-        @"AppendClass\s*\(\s*ref\s+[A-Za-z_][A-Za-z0-9_]*\s*,\s*""(?<classes>(?:[^""\\]|\\.)*)""\s*\)",
-        RegexOptions.Singleline)]
+    [GeneratedRegex(@"AppendClass\s*\(\s*ref\s+[A-Za-z_][A-Za-z0-9_]*\s*,\s*""(?<classes>(?:[^""\\]|\\.)*)""\s*\)", RegexOptions.Singleline)]
     private static partial Regex AppendClassLiteralRegex();
 
-    [GeneratedRegex(
-        @"(?<!@)""(?<value>(?:[^""\\]|\\.)*)""",
-        RegexOptions.Singleline)]
+    [GeneratedRegex(@"(?<!@)""(?<value>(?:[^""\\]|\\.)*)""", RegexOptions.Singleline)]
     private static partial Regex RegularStringLiteralRegex();
 
-    [GeneratedRegex(
-        "@\"(?<value>(?:[^\"]|\"\")*)\"",
-        RegexOptions.Singleline)]
+    [GeneratedRegex("@\"(?<value>(?:[^\"]|\"\")*)\"", RegexOptions.Singleline)]
     private static partial Regex VerbatimStringLiteralRegex();
 
-    [GeneratedRegex(
-        @"/\*.*?\*/",
-        RegexOptions.Singleline)]
+    [GeneratedRegex(@"/\*.*?\*/", RegexOptions.Singleline)]
     private static partial Regex CStyleCommentRegex();
 
-    [GeneratedRegex(
-        @"//.*?$",
-        RegexOptions.Multiline)]
+    [GeneratedRegex(@"//.*?$", RegexOptions.Multiline)]
     private static partial Regex CppStyleCommentRegex();
 
-    [GeneratedRegex(
-        @"@\*.*?\*@",
-        RegexOptions.Singleline)]
+    [GeneratedRegex(@"@\*.*?\*@", RegexOptions.Singleline)]
     private static partial Regex RazorCommentRegex();
 
-    [GeneratedRegex(
-        @"<!--.*?-->",
-        RegexOptions.Singleline)]
+    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
     private static partial Regex HtmlCommentRegex();
 
     private static readonly HashSet<string> StandaloneClassTokens = new(StringComparer.Ordinal)
@@ -89,10 +71,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     private readonly IFileUtil _fileUtil;
     private readonly IDirectoryUtil _directoryUtil;
 
-    public QuarkTailwindManifestGenerator(
-        ILogger<QuarkTailwindManifestGenerator> logger,
-        IFileUtil fileUtil,
-        IDirectoryUtil directoryUtil)
+    public QuarkTailwindManifestGenerator(ILogger<QuarkTailwindManifestGenerator> logger, IFileUtil fileUtil, IDirectoryUtil directoryUtil)
     {
         _logger = logger;
         _fileUtil = fileUtil;
@@ -127,7 +106,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         string? projectParent = Path.GetDirectoryName(projectDir);
 
-        if (projectParent.HasContent() && await _directoryUtil.Exists(projectParent, cancellationToken).NoSync())
+        if (projectParent.HasContent() && await _directoryUtil.Exists(projectParent, cancellationToken)
+                                                              .NoSync())
             sourceRoots.Add(projectParent);
 
         string outputPath = map.TryGetValue("--manifestOutput", out string? manifestOutput) && manifestOutput.HasContent()
@@ -137,11 +117,13 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         string? outputDir = Path.GetDirectoryName(outputPath);
 
         if (outputDir.HasContent())
-            await _directoryUtil.Create(outputDir, log: false, cancellationToken).NoSync();
+            await _directoryUtil.Create(outputDir, log: false, cancellationToken)
+                                .NoSync();
 
         Console.WriteLine($"QuarkTailwindManifestGenerator: projectDir={projectDir}, sourceRoots={sourceRoots.Count}, output={outputPath}");
 
-        await GenerateInlineManifest(sourceRoots, outputPath, cancellationToken).NoSync();
+        await GenerateInlineManifest(sourceRoots, outputPath, cancellationToken)
+            .NoSync();
 
         return 0;
     }
@@ -156,7 +138,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         foreach (string sourceRoot in sourceRoots)
         {
-            if (!await _directoryUtil.Exists(sourceRoot, cancellationToken).NoSync())
+            if (!await _directoryUtil.Exists(sourceRoot, cancellationToken)
+                                     .NoSync())
             {
                 Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: skipping missing source root: {sourceRoot}");
                 continue;
@@ -164,7 +147,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
             Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: scanning source root: {sourceRoot}");
 
-            List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken).NoSync();
+            List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken)
+                                                       .NoSync();
 
             foreach (string file in csFiles)
             {
@@ -174,7 +158,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 cancellationToken.ThrowIfCancellationRequested();
                 totalFilesScanned++;
 
-                string? text = await TryReadFile(file, isRazor: false, cancellationToken).NoSync();
+                string? text = await TryReadFile(file, isRazor: false, cancellationToken)
+                    .NoSync();
 
                 if (text is null)
                     continue;
@@ -182,7 +167,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 ProcessCsFile(file, text, uniqueLines, ref tailwindPrefixClasses, ref componentCodeClasses);
             }
 
-            List<string> razorFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".razor", recursive: true, cancellationToken).NoSync();
+            List<string> razorFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".razor", recursive: true, cancellationToken)
+                                                          .NoSync();
 
             foreach (string file in razorFiles)
             {
@@ -192,7 +178,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 cancellationToken.ThrowIfCancellationRequested();
                 totalFilesScanned++;
 
-                string? text = await TryReadFile(file, isRazor: true, cancellationToken).NoSync();
+                string? text = await TryReadFile(file, isRazor: true, cancellationToken)
+                    .NoSync();
 
                 if (text is null)
                     continue;
@@ -221,14 +208,16 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         foreach (string line in final)
             sb.AppendLine(line);
 
-        await _fileUtil.Write(outputPath, sb.ToStringAndDispose(), cancellationToken: cancellationToken).NoSync();
+        await _fileUtil.Write(outputPath, sb.ToStringAndDispose(), cancellationToken: cancellationToken)
+                       .NoSync();
     }
 
     private async ValueTask<string?> TryReadFile(string file, bool isRazor, CancellationToken cancellationToken)
     {
         try
         {
-            string text = await _fileUtil.Read(file, log: false, cancellationToken).NoSync();
+            string text = await _fileUtil.Read(file, log: false, cancellationToken)
+                                         .NoSync();
             return isRazor ? StripRazorComments(text) : StripComments(text);
         }
         catch (Exception ex)
@@ -240,17 +229,18 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private void ProcessCsFile(string file, string text, HashSet<string> uniqueLines, ref int tailwindPrefixClasses, ref int componentCodeClasses)
     {
-        foreach (Match match in ClassWithAttrRegex().Matches(text))
+        foreach (Match match in ClassWithAttrRegex()
+                     .Matches(text))
         {
             string attrBlob = match.Groups["attr"].Value;
-            Match attrMatch = TailwindPrefixArgsRegex().Match(attrBlob);
+            Match attrMatch = TailwindPrefixArgsRegex()
+                .Match(attrBlob);
 
             if (!attrMatch.Success)
                 continue;
 
             string prefix = attrMatch.Groups["prefix"].Value;
-            bool responsive = !attrMatch.Groups["resp"].Success ||
-                              !bool.TryParse(attrMatch.Groups["resp"].Value, out bool parsedResponsive) ||
+            bool responsive = !attrMatch.Groups["resp"].Success || !bool.TryParse(attrMatch.Groups["resp"].Value, out bool parsedResponsive) ||
                               parsedResponsive;
 
             string className = match.Groups["name"].Value;
@@ -262,7 +252,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
             var classNames = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (Match propMatch in ChainPropRegex().Matches(body))
+            foreach (Match propMatch in ChainPropRegex()
+                         .Matches(body))
             {
                 string typeName = propMatch.Groups["type"].Value;
 
@@ -297,12 +288,14 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     {
         var classNames = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (Match match in RazorClassAttributeRegex().Matches(text))
+        foreach (Match match in RazorClassAttributeRegex()
+                     .Matches(text))
         {
             AddClassTokens(classNames, match.Groups["classes"].Value);
         }
 
-        foreach (Match match in AppendClassLiteralRegex().Matches(text))
+        foreach (Match match in AppendClassLiteralRegex()
+                     .Matches(text))
         {
             AddClassTokens(classNames, match.Groups["classes"].Value);
         }
@@ -318,7 +311,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         LogClasses("[Razor]", file, classNames, added);
     }
 
-    private void LogClasses(string tag, string file, HashSet<string> classNames, int added, string? prefix = null, bool? responsive = null, string? className = null)
+    private void LogClasses(string tag, string file, HashSet<string> classNames, int added, string? prefix = null, bool? responsive = null,
+        string? className = null)
     {
         var classList = new List<string>(classNames);
         classList.Sort(StringComparer.Ordinal);
@@ -330,8 +324,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             return;
         }
 
-        Console.WriteLine(
-            $"QuarkTailwindManifestGenerator [inline]: {tag} {file} -> classes=[{string.Join(", ", classList)}], lines added={added}");
+        Console.WriteLine($"QuarkTailwindManifestGenerator [inline]: {tag} {file} -> classes=[{string.Join(", ", classList)}], lines added={added}");
     }
 
     private static int AddManifestClasses(HashSet<string> uniqueLines, HashSet<string> classes, bool responsive)
@@ -363,11 +356,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static bool IsExcluded(string fullPath)
     {
-        return ContainsPathSegment(fullPath, "/bin/") ||
-               ContainsPathSegment(fullPath, "/obj/") ||
-               ContainsPathSegment(fullPath, "/node_modules/") ||
-               ContainsPathSegment(fullPath, "/.git/") ||
-               ContainsPathSegment(fullPath, "/tailwind/");
+        return ContainsPathSegment(fullPath, "/bin/") || ContainsPathSegment(fullPath, "/obj/") || ContainsPathSegment(fullPath, "/node_modules/") ||
+               ContainsPathSegment(fullPath, "/.git/") || ContainsPathSegment(fullPath, "/tailwind/");
     }
 
     private static bool ShouldScanGeneralClassStrings(string file)
@@ -383,20 +373,25 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static string NormalizeFullPath(string path)
     {
-        return Path.GetFullPath(path.Trim().Trim('"'));
+        return Path.GetFullPath(path.Trim()
+                                    .Trim('"'));
     }
 
     private static string StripComments(string value)
     {
-        value = CStyleCommentRegex().Replace(value, string.Empty);
-        value = CppStyleCommentRegex().Replace(value, string.Empty);
+        value = CStyleCommentRegex()
+            .Replace(value, string.Empty);
+        value = CppStyleCommentRegex()
+            .Replace(value, string.Empty);
         return value;
     }
 
     private static string StripRazorComments(string value)
     {
-        value = RazorCommentRegex().Replace(value, string.Empty);
-        value = HtmlCommentRegex().Replace(value, string.Empty);
+        value = RazorCommentRegex()
+            .Replace(value, string.Empty);
+        value = HtmlCommentRegex()
+            .Replace(value, string.Empty);
         return value;
     }
 
@@ -432,7 +427,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             return arg.Substring(1, arg.Length - 2);
 
         if (arg.Length >= 3 && arg[0] == '@' && arg[1] == '"' && arg[^1] == '"')
-            return arg.Substring(2, arg.Length - 3).Replace("\"\"", "\"", StringComparison.Ordinal);
+            return arg.Substring(2, arg.Length - 3)
+                      .Replace("\"\"", "\"", StringComparison.Ordinal);
 
         if (arg.Contains('.', StringComparison.Ordinal))
             return propName.ToLowerInvariantFast();
@@ -487,19 +483,21 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                     braceDepth--;
                     break;
                 case ',' when parenDepth == 0 && bracketDepth == 0 && braceDepth == 0:
-                    {
-                        if (i > start)
-                            results.Add(args.Substring(start, i - start).Trim());
+                {
+                    if (i > start)
+                        results.Add(args.Substring(start, i - start)
+                                        .Trim());
 
-                        start = i + 1;
-                        break;
-                    }
+                    start = i + 1;
+                    break;
+                }
             }
         }
 
         if (start < args.Length)
         {
-            string last = args.Substring(start).Trim();
+            string last = args.Substring(start)
+                              .Trim();
 
             if (last.Length > 0)
                 results.Add(last);
@@ -569,7 +567,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (classList.IsNullOrWhiteSpace())
             return;
 
-        ReadOnlySpan<char> span = classList.AsSpan().Trim();
+        ReadOnlySpan<char> span = classList.AsSpan()
+                                           .Trim();
 
         if (span.Length == 0 || span[0] == '@')
             return;
@@ -587,7 +586,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 i++;
 
             if (i > start)
-                target.Add(span[start..i].ToString());
+                target.Add(span[start..i]
+                    .ToString());
         }
     }
 
@@ -599,7 +599,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (token.StartsWith("@", StringComparison.Ordinal) && !token.StartsWith("@container", StringComparison.Ordinal))
             return false;
 
-        if (token.AsSpan().IndexOfAny(_invalidTokenChars) >= 0)
+        if (token.AsSpan()
+                 .IndexOfAny(_invalidTokenChars) >= 0)
             return false;
 
         if (token.StartsWith("q-", StringComparison.Ordinal) || token.StartsWith("@container", StringComparison.Ordinal))
@@ -608,7 +609,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (StandaloneClassTokens.Contains(token))
             return true;
 
-        return token.AsSpan().IndexOfAny(_standaloneTokenSpecialChars) >= 0;
+        return token.AsSpan()
+                    .IndexOfAny(_standaloneTokenSpecialChars) >= 0;
     }
 
     /// <summary>
@@ -623,7 +625,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (token.IndexOfAny(_disallowedInTailwindClass) >= 0)
             return false;
 
-        if (token.Slice(0, 1).IndexOfAny(_validTailwindFirstChar) < 0)
+        if (token.Slice(0, 1)
+                 .IndexOfAny(_validTailwindFirstChar) < 0)
             return false;
 
         if (token[0] == '@' && !token.StartsWith("@container", StringComparison.Ordinal))
@@ -647,7 +650,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (value.IsNullOrWhiteSpace())
             return;
 
-        ReadOnlySpan<char> span = value.AsSpan().Trim();
+        ReadOnlySpan<char> span = value.AsSpan()
+                                       .Trim();
 
         if (span.Length == 0 || span[0] == '@')
             return;
@@ -715,15 +719,19 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static void AddGeneralClassStrings(ISet<string> target, string text)
     {
-        foreach (Match match in VerbatimStringLiteralRegex().Matches(text))
+        foreach (Match match in VerbatimStringLiteralRegex()
+                     .Matches(text))
         {
-            string value = match.Groups["value"].Value.Replace("\"\"", "\"", StringComparison.Ordinal);
+            string value = match.Groups["value"]
+                                .Value.Replace("\"\"", "\"", StringComparison.Ordinal);
             AddCandidateClassString(target, value);
         }
 
-        foreach (Match match in RegularStringLiteralRegex().Matches(text))
+        foreach (Match match in RegularStringLiteralRegex()
+                     .Matches(text))
         {
-            string value = match.Groups["value"].Value.Replace("\\\"", "\"", StringComparison.Ordinal);
+            string value = match.Groups["value"]
+                                .Value.Replace("\\\"", "\"", StringComparison.Ordinal);
             AddCandidateClassString(target, value);
         }
     }
