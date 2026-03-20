@@ -6,14 +6,16 @@
 
     <PropertyGroup>
         <!-- Package-scoped names so multiple Soenneker.Quark.Gen.* packages can coexist in one project. -->
-        <_QuarkTailwindManifestBuildTasksDir Condition="Exists('$(MSBuildThisFileDirectory)Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll')">$(MSBuildThisFileDirectory)</_QuarkTailwindManifestBuildTasksDir>
-        <_QuarkTailwindManifestBuildTasksDir Condition="'$(_QuarkTailwindManifestBuildTasksDir)'=='' and Exists('$(MSBuildThisFileDirectory)..\buildTransitive\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll')">$(MSBuildThisFileDirectory)..\buildTransitive\</_QuarkTailwindManifestBuildTasksDir>
-        <_QuarkTailwindManifestBuildTasksDir Condition="'$(_QuarkTailwindManifestBuildTasksDir)'=='' and Exists('$(MSBuildThisFileDirectory)..\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks\bin\$(Configuration)\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll')">$(MSBuildThisFileDirectory)..\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks\bin\$(Configuration)\</_QuarkTailwindManifestBuildTasksDir>
-        <QuarkTailwindManifestBuildTasksDllPath Condition="'$(QuarkTailwindManifestBuildTasksDllPath)'=='' and '$(_QuarkTailwindManifestBuildTasksDir)'!=''">$(_QuarkTailwindManifestBuildTasksDir)Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll</QuarkTailwindManifestBuildTasksDllPath>
+        <_QuarkTailwindManifestBuildTasksDllFromPackage>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', 'Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll'))</_QuarkTailwindManifestBuildTasksDllFromPackage>
+        <_QuarkTailwindManifestBuildTasksDllFromBuildTransitive>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', 'buildTransitive', 'Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll'))))</_QuarkTailwindManifestBuildTasksDllFromBuildTransitive>
+        <_QuarkTailwindManifestBuildTasksDllFromProject>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', 'Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks', 'bin', '$(Configuration)', 'Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll'))))</_QuarkTailwindManifestBuildTasksDllFromProject>
+        <QuarkTailwindManifestBuildTasksDllPath Condition="'$(QuarkTailwindManifestBuildTasksDllPath)'=='' and Exists('$(_QuarkTailwindManifestBuildTasksDllFromPackage)')">$(_QuarkTailwindManifestBuildTasksDllFromPackage)</QuarkTailwindManifestBuildTasksDllPath>
+        <QuarkTailwindManifestBuildTasksDllPath Condition="'$(QuarkTailwindManifestBuildTasksDllPath)'=='' and Exists('$(_QuarkTailwindManifestBuildTasksDllFromBuildTransitive)')">$(_QuarkTailwindManifestBuildTasksDllFromBuildTransitive)</QuarkTailwindManifestBuildTasksDllPath>
+        <QuarkTailwindManifestBuildTasksDllPath Condition="'$(QuarkTailwindManifestBuildTasksDllPath)'=='' and Exists('$(_QuarkTailwindManifestBuildTasksDllFromProject)')">$(_QuarkTailwindManifestBuildTasksDllFromProject)</QuarkTailwindManifestBuildTasksDllPath>
         <QuarkTailwindManifestGeneratorBuildEnabled Condition="'$(QuarkTailwindManifestGeneratorBuildEnabled)'==''">true</QuarkTailwindManifestGeneratorBuildEnabled>
         <_QuarkTailwindManifestProjectDir>$([System.IO.Path]::GetDirectoryName('$(ProjectDir)x'))</_QuarkTailwindManifestProjectDir>
         <_QuarkTailwindManifestProjectDir Condition="'$(_QuarkTailwindManifestProjectDir)' == ''">$(MSBuildProjectDirectory)</_QuarkTailwindManifestProjectDir>
-        <QuarkTailwindManifestOutput Condition="'$(QuarkTailwindManifestOutput)' == ''">$(_QuarkTailwindManifestProjectDir)\tailwind\tw-inline.generated.txt</QuarkTailwindManifestOutput>
+        <QuarkTailwindManifestOutput Condition="'$(QuarkTailwindManifestOutput)' == ''">$([System.IO.Path]::Combine('$(_QuarkTailwindManifestProjectDir)', 'tailwind', 'tw-inline.generated.txt'))</QuarkTailwindManifestOutput>
         <_QuarkTailwindManifestOutputArg Condition="'$(QuarkTailwindManifestOutput)' != ''"> --manifestOutput &quot;$(QuarkTailwindManifestOutput)&quot;</_QuarkTailwindManifestOutputArg>
         <_QuarkTailwindManifestSourceDirsArg Condition="'$(QuarkTailwindManifestSourceDirs)' != ''"> --sourceDirs &quot;$(QuarkTailwindManifestSourceDirs)&quot;</_QuarkTailwindManifestSourceDirsArg>
     </PropertyGroup>
