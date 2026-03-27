@@ -23,6 +23,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static readonly string[] _responsivePrefixes = ["", "sm:", "md:", "lg:", "xl:", "2xl:"];
 
+    private readonly record struct TailwindBuilderMetadata(string Prefix, bool Responsive);
+
     [GeneratedRegex(
         @"\[(?<attr>[^\]]*TailwindPrefix[^\]]*)\]\s*(?:(?:public|internal|private|protected)\s+)?(?:sealed\s+)?class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b(?<after>[^{]*)\{",
         RegexOptions.Singleline)]
@@ -31,6 +33,19 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     [GeneratedRegex(@"TailwindPrefix\s*\(\s*""(?<prefix>[^""]+)""(?:\s*,\s*Responsive\s*=\s*(?<resp>true|false))?\s*\)",
         RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex TailwindPrefixArgsRegex();
+
+    [GeneratedRegex(
+        @"\s*(?:(?:public|internal|private|protected)\s+)?static\s+class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b(?<after>[^{]*)\{",
+        RegexOptions.Singleline)]
+    private static partial Regex StaticClassRegex();
+
+    [GeneratedRegex(@"public\s+static\s+(?<builder>[A-Za-z_][A-Za-z0-9_]*)\s+Token\s*\(\s*string\s+token\s*\)\s*=>\s*new\s*\(\s*token\s*\)\s*;",
+        RegexOptions.Singleline)]
+    private static partial Regex StaticTokenMethodRegex();
+
+    [GeneratedRegex(@"(?<root>[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*Token\s*\(\s*(?<token>@?""(?:[^""\\]|\\.|"""")*"")\s*\)",
+        RegexOptions.Singleline)]
+    private static partial Regex StaticTokenInvocationRegex();
 
     [GeneratedRegex(@"public\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s+(?<prop>[A-Za-z_][A-Za-z0-9_]*)\s*=>\s*(?<method>Chain[A-Za-z]*)\s*\(\s*(?<args>[^;]*)\)\s*;",
         RegexOptions.Singleline)]
@@ -110,6 +125,15 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                                                               .NoSync())
             sourceRoots.Add(projectParent);
 
+        if (projectParent.HasContent() && string.Equals(Path.GetFileName(projectParent), "src", StringComparison.OrdinalIgnoreCase))
+        {
+            string? projectGrandparent = Path.GetDirectoryName(projectParent);
+
+            if (projectGrandparent.HasContent() && await _directoryUtil.Exists(projectGrandparent, cancellationToken)
+                                                                        .NoSync())
+                sourceRoots.Add(projectGrandparent);
+        }
+
         string outputPath = map.TryGetValue("--manifestOutput", out string? manifestOutput) && manifestOutput.HasContent()
             ? NormalizeFullPath(manifestOutput)
             : Path.Combine(projectDir, "tailwind", _inlineGeneratedTxtFileName);
@@ -137,6 +161,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         var tailwindPrefixClasses = 0;
         var componentCodeClasses = 0;
         var razorClasses = 0;
+        var csSources = new List<(string File, string Text)>();
+        var razorSources = new List<(string File, string Text)>();
 
         foreach (string sourceRoot in sourceRoots)
         {
@@ -166,7 +192,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 if (text is null)
                     continue;
 
-                ProcessCsFile(file, text, uniqueLines, ref tailwindPrefixClasses, ref componentCodeClasses);
+                csSources.Add((file, text));
             }
 
             List<string> razorFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".razor", recursive: true, cancellationToken)
@@ -186,8 +212,21 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 if (text is null)
                     continue;
 
-                ProcessRazorFile(file, text, uniqueLines, ref razorClasses);
+                razorSources.Add((file, text));
             }
+        }
+
+        Dictionary<string, TailwindBuilderMetadata> builders = CollectBuilderMetadata(csSources);
+        Dictionary<string, TailwindBuilderMetadata> tokenFacades = CollectTokenFacadeMetadata(csSources, builders);
+
+        foreach ((string file, string text) in csSources)
+        {
+            ProcessCsFile(file, text, uniqueLines, tokenFacades, ref tailwindPrefixClasses, ref componentCodeClasses);
+        }
+
+        foreach ((string file, string text) in razorSources)
+        {
+            ProcessRazorFile(file, text, uniqueLines, tokenFacades, ref razorClasses);
         }
 
         var final = new List<string>(uniqueLines);
@@ -230,7 +269,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
     }
 
-    private void ProcessCsFile(string file, string text, HashSet<string> uniqueLines, ref int tailwindPrefixClasses, ref int componentCodeClasses)
+    private void ProcessCsFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, TailwindBuilderMetadata> tokenFacades,
+        ref int tailwindPrefixClasses, ref int componentCodeClasses)
     {
         foreach (Match match in ClassWithAttrRegex()
                      .Matches(text))
@@ -283,11 +323,11 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             LogClasses("[TailwindPrefix]", file, classNames, added, prefix, responsive, className);
         }
 
-        // Do not scan all string literals in .cs files — they are mostly non-class (messages, keys, etc.).
-        // TailwindPrefix extraction above is the only source of classes from C#.
+        AddStaticTokenInvocationClasses(file, text, tokenFacades, uniqueLines, ref componentCodeClasses);
     }
 
-    private void ProcessRazorFile(string file, string text, HashSet<string> uniqueLines, ref int razorClasses)
+    private void ProcessRazorFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, TailwindBuilderMetadata> tokenFacades,
+        ref int razorClasses)
     {
         var classNames = new HashSet<string>(StringComparer.Ordinal);
 
@@ -312,6 +352,93 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         razorClasses += added;
 
         LogClasses("[Razor]", file, classNames, added);
+        AddStaticTokenInvocationClasses(file, text, tokenFacades, uniqueLines, ref razorClasses);
+    }
+
+    private static Dictionary<string, TailwindBuilderMetadata> CollectBuilderMetadata(List<(string File, string Text)> csSources)
+    {
+        var result = new Dictionary<string, TailwindBuilderMetadata>(StringComparer.Ordinal);
+
+        foreach ((_, string text) in csSources)
+        {
+            foreach (Match match in ClassWithAttrRegex().Matches(text))
+            {
+                Match attrMatch = TailwindPrefixArgsRegex().Match(match.Groups["attr"].Value);
+
+                if (!attrMatch.Success)
+                    continue;
+
+                string prefix = attrMatch.Groups["prefix"].Value;
+                bool responsive = !attrMatch.Groups["resp"].Success || !bool.TryParse(attrMatch.Groups["resp"].Value, out bool parsedResponsive) ||
+                                  parsedResponsive;
+
+                result[match.Groups["name"].Value] = new TailwindBuilderMetadata(prefix, responsive);
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<string, TailwindBuilderMetadata> CollectTokenFacadeMetadata(List<(string File, string Text)> csSources,
+        Dictionary<string, TailwindBuilderMetadata> builders)
+    {
+        var result = new Dictionary<string, TailwindBuilderMetadata>(StringComparer.Ordinal);
+
+        foreach ((_, string text) in csSources)
+        {
+            foreach (Match match in StaticClassRegex().Matches(text))
+            {
+                string facadeName = match.Groups["name"].Value;
+                int braceIdx = match.Index + match.Length - 1;
+                string? body = TryGetClassBody(text, braceIdx);
+
+                if (body is null)
+                    continue;
+
+                Match tokenMethod = StaticTokenMethodRegex().Match(body);
+
+                if (!tokenMethod.Success)
+                    continue;
+
+                string builderName = tokenMethod.Groups["builder"].Value;
+
+                if (builders.TryGetValue(builderName, out TailwindBuilderMetadata metadata))
+                    result[facadeName] = metadata;
+            }
+        }
+
+        return result;
+    }
+
+    private void AddStaticTokenInvocationClasses(string file, string text, Dictionary<string, TailwindBuilderMetadata> tokenFacades,
+        HashSet<string> uniqueLines, ref int count)
+    {
+        var classNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (Match match in StaticTokenInvocationRegex().Matches(text))
+        {
+            string root = match.Groups["root"].Value;
+
+            if (!tokenFacades.TryGetValue(root, out TailwindBuilderMetadata metadata))
+                continue;
+
+            string? token = ParseQuotedTokenLiteral(match.Groups["token"].Value);
+
+            if (!token.HasContent())
+                continue;
+
+            string className = BuildPrefixedClass(metadata.Prefix, token);
+
+            if (className.HasContent())
+                classNames.Add(className);
+        }
+
+        if (classNames.Count == 0)
+            return;
+
+        int added = AddManifestClasses(uniqueLines, classNames, responsive: false);
+        count += added;
+        LogClasses("[Token]", file, classNames, added);
     }
 
     private void LogClasses(string tag, string file, HashSet<string> classNames, int added, string? prefix = null, bool? responsive = null,
@@ -437,6 +564,21 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             return propName.ToLowerInvariantFast();
 
         return propName.ToLowerInvariantFast();
+    }
+
+    private static string? ParseQuotedTokenLiteral(string arg)
+    {
+        arg = arg.Trim();
+
+        if (arg.Length >= 2 && arg[0] == '"' && arg[^1] == '"')
+            return arg.Substring(1, arg.Length - 2)
+                      .Replace("\\\"", "\"", StringComparison.Ordinal);
+
+        if (arg.Length >= 3 && arg[0] == '@' && arg[1] == '"' && arg[^1] == '"')
+            return arg.Substring(2, arg.Length - 3)
+                      .Replace("\"\"", "\"", StringComparison.Ordinal);
+
+        return null;
     }
 
     private static List<string> SplitArguments(string args)
