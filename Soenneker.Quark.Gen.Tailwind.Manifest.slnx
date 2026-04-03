@@ -12,6 +12,7 @@
     <Project Path="src/Soenneker.Quark.Gen.Tailwind.Manifest/Soenneker.Quark.Gen.Tailwind.Manifest.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Soenneker.Quark.Gen.Tailwind.Manifest.Demo/Soenneker.Quark.Gen.Tailwind.Manifest.Demo.csproj" Id="9ea101f9-ba4e-435b-99f2-067012300322" />
     <Project Path="test/Soenneker.Quark.Gen.Tailwind.Manifest.Tests/Soenneker.Quark.Gen.Tailwind.Manifest.Tests.csproj" />
   </Folder>
 </Solution>

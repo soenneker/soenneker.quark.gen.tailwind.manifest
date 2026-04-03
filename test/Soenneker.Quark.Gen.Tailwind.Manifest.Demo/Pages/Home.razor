@@ -1,0 +1,71 @@
+﻿@page "/"
+
+<PageTitle>Manifest Coverage</PageTitle>
+
+<Div Space="Space.Y.Is8">
+    <Div Space="Space.Y.Is2">
+        <H1 TextSize="TextSize.ThreeXl.OnSm.FourXl" FontWeight="FontWeight.Semibold" LetterSpacing="LetterSpacing.Tight">
+            Quark Tailwind Manifest Coverage
+        </H1>
+        <Paragraph MaxWidth='@MaxWidth.Token("[48rem]")' TextColor="TextColor.MutedForeground" Class="leading-7">
+            This page intentionally covers the main Quark Suite usage patterns that the manifest generator should recognize.
+        </Paragraph>
+    </Div>
+
+    <Div Class="grid gap-6 lg:grid-cols-2">
+        <Div Rounded="Rounded.Lg" Border="Border.Is1" BorderColor="BorderColor.Border" BackgroundColor="BackgroundColor.Card" Padding="Padding.Is4" Space="Space.Y.Is3">
+            <Paragraph TextSize="TextSize.Lg" FontWeight="FontWeight.Medium">Property Chains</Paragraph>
+            <Paragraph TextSize="TextSize.Xl.OnSm.Base" TextColor="TextColor.MutedForeground">
+                `TextSize.Xl.OnSm.Base` should contribute `text-xl` and `sm:text-base`.
+            </Paragraph>
+            <Div Display="Display.Flex" AlignUtility="Align.ItemsStart.JustifyBetween" Gap="Gap.Is4">
+                <Span Rounded="Rounded.Md" BackgroundColor="BackgroundColor.Secondary" Padding="Padding.Is2.OnY" TextSize="TextSize.Xs">
+                    `Padding.Is2.OnY`
+                </Span>
+                <Span Rounded="Rounded.Md" BackgroundColor="BackgroundColor.Secondary" Padding="Padding.Is6" TextSize="TextSize.Xs">
+                    `Padding.Is6`
+                </Span>
+            </Div>
+        </Div>
+
+        <Div Rounded="Rounded.Lg" Border="Border.Is1" BorderColor="BorderColor.Border" BackgroundColor="BackgroundColor.Card" Padding="Padding.Is4" Space="Space.Y.Is3">
+            <Paragraph TextSize="TextSize.Lg" FontWeight="FontWeight.Medium">Token Chains</Paragraph>
+            <Div Display="Display.InlineFlex" AlignUtility="Align.ItemsCenter" Gap='@Gap.Token("1.5")' Rounded="Rounded.Full" Border="Border.Is1"
+                 BorderColor='@BorderColor.Token("primary/30")' BackgroundColor='@BackgroundColor.Token("primary/10")'
+                 Padding='@Padding.Token("3").OnX.Token("1").OnY' TextSize="TextSize.Sm" TextColor="TextColor.Foreground">
+                <Span Height='@Height.Token("2")' Width='@Width.Token("2")' Rounded="Rounded.Full" BackgroundColor="BackgroundColor.Primary"></Span>
+                <Span>Padding token chain</Span>
+            </Div>
+            <Div Space='@Space.Y.Token("1.5")'>
+                <Div Height='@Height.Token("10")' Width='@Width.Token("[200px]")' Rounded="Rounded.Md" BackgroundColor="BackgroundColor.Secondary"></Div>
+                <Div Height='@Height.Token("4")' Width='@Width.Token("[120px]")' Rounded="Rounded.Md" BackgroundColor="BackgroundColor.Secondary"></Div>
+            </Div>
+        </Div>
+
+        <Div Rounded="Rounded.Lg" Border="Border.Is1" BorderColor="BorderColor.Border" BackgroundColor="BackgroundColor.Card" Padding="Padding.Is4" Space="Space.Y.Is3">
+            <Paragraph TextSize="TextSize.Lg" FontWeight="FontWeight.Medium">Arbitrary Values</Paragraph>
+            <Paragraph TextSize='@TextSize.Token("[11px]")' LetterSpacing='@LetterSpacing.Token("[0.2em]")' TextTransform="TextTransform.Uppercase"
+                       TextColor="TextColor.MutedForeground">
+                Arbitrary token values should emit `text-[11px]` and `tracking-[0.2em]`.
+            </Paragraph>
+            <Div MaxWidth='@MaxWidth.Token("[200px]")' Rounded="Rounded.Md" Border="Border.Is1" BorderColor="BorderColor.Border" Padding="Padding.Is2">
+                <Paragraph TextWrap="TextWrap.Wrap">
+                    `MaxWidth.Token("[200px]")` should emit `max-w-[200px]`.
+                </Paragraph>
+            </Div>
+        </Div>
+
+        <Div Rounded="Rounded.Lg" Border="Border.Is1" BorderColor="BorderColor.Border" BackgroundColor="BackgroundColor.Card" Padding="Padding.Is4" Space="Space.Y.Is3">
+            <Paragraph TextSize="TextSize.Lg" FontWeight="FontWeight.Medium">Literal Class Attributes</Paragraph>
+            <Div Class="grid gap-4 rounded-lg border bg-muted/40 p-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <Div Class="rounded-md border bg-background p-3 text-sm text-muted-foreground">
+                    Literal class attributes should still be scanned.
+                </Div>
+                <Div Class="flex items-center justify-between rounded-md border bg-background px-3 py-1.5">
+                    <Span Class="text-[11px] tracking-[0.2em] uppercase text-muted-foreground">literal</Span>
+                    <Span Class="rounded-full bg-primary/10 px-2 py-1 text-primary">classes</Span>
+                </Div>
+            </Div>
+        </Div>
+    </Div>
+</Div>

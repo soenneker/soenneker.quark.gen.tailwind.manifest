@@ -40,7 +40,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private readonly record struct TailwindBuilderMetadata(string Prefix, bool Responsive, Dictionary<string, InvocationAction> Members);
 
-    private readonly record struct TailwindFacadeMetadata(TailwindBuilderMetadata? Builder, Dictionary<string, InvocationAction> Members);
+    private readonly record struct TailwindFacadeMetadata(TailwindBuilderMetadata? Builder, Dictionary<string, InvocationAction> Members,
+        HashSet<string> BuilderBackedMembers);
 
     private readonly record struct ChainSegment(string Name, List<string> Args);
 
@@ -449,24 +450,34 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                     continue;
 
                 var members = new Dictionary<string, InvocationAction>(StringComparer.Ordinal);
+                var builderBackedMembers = new HashSet<string>(StringComparer.Ordinal);
                 TailwindBuilderMetadata? builderMetadata = null;
 
                 foreach (Match memberMatch in StaticBuilderMemberRegex().Matches(body))
                 {
+                    string memberName = memberMatch.Groups["name"].Value;
                     string builderName = memberMatch.Groups["builder"].Value;
 
                     if (!builders.TryGetValue(builderName, out TailwindBuilderMetadata metadata))
                         continue;
 
+                    if (metadata.Members.TryGetValue(memberName, out InvocationAction builderAction))
+                    {
+                        members[memberName] = builderAction;
+                        builderBackedMembers.Add(memberName);
+                        builderMetadata ??= metadata;
+                        continue;
+                    }
+
                     if (TryCreateFacadeAction(memberMatch.Groups["params"].Value, SplitArguments(memberMatch.Groups["args"].Value), metadata, out InvocationAction action))
                     {
-                        members[memberMatch.Groups["name"].Value] = action;
+                        members[memberName] = action;
                         builderMetadata ??= metadata;
                     }
                 }
 
                 if (members.Count > 0)
-                    result[facadeName] = new TailwindFacadeMetadata(builderMetadata, members);
+                    result[facadeName] = new TailwindFacadeMetadata(builderMetadata, members, builderBackedMembers);
             }
         }
 
@@ -480,14 +491,18 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         foreach ((string root, List<ChainSegment> segments) in EnumerateFluentChains(text))
         {
-            if (!tokenFacades.TryGetValue(root, out TailwindFacadeMetadata facade))
-                continue;
+            List<string>? classes = null;
 
-            if (!ContainsTokenSegment(segments))
+            if (tokenFacades.TryGetValue(root, out TailwindFacadeMetadata facade) &&
+                ShouldProcessFluentChain(facade, segments) &&
+                TryEvaluateChain(facade, segments, out List<string>? metadataClasses))
+            {
+                classes = metadataClasses;
+            }
+            else if (!TryEvaluateQuarkConventionChain(root, segments, out classes))
+            {
                 continue;
-
-            if (!TryEvaluateChain(facade, segments, out List<string>? classes))
-                continue;
+            }
 
             foreach (string className in classes!)
             {
@@ -504,7 +519,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         LogClasses("[Fluent]", file, classNames, added);
     }
 
-    private static bool ContainsTokenSegment(List<ChainSegment> segments)
+    private static bool ShouldProcessFluentChain(TailwindFacadeMetadata facade, List<ChainSegment> segments)
     {
         for (var i = 0; i < segments.Count; i++)
         {
@@ -512,7 +527,548 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 return true;
         }
 
-        return false;
+        return segments.Count > 0 && facade.BuilderBackedMembers.Contains(segments[0].Name);
+    }
+
+    private static bool TryEvaluateQuarkConventionChain(string root, List<ChainSegment> segments, out List<string>? classes)
+    {
+        classes = null;
+
+        if (segments.Count == 0)
+            return false;
+
+        var emitted = new List<EmittedClass>(4);
+        string? pendingBreakpoint = null;
+
+        switch (root)
+        {
+            case "TextSize":
+                if (!EvaluatePrefixedConventionChain("text", segments, emitted, ref pendingBreakpoint, TryMapTextSizeMember))
+                    return false;
+                break;
+            case "LetterSpacing":
+                if (!EvaluatePrefixedConventionChain("tracking", segments, emitted, ref pendingBreakpoint, TryMapLetterSpacingMember))
+                    return false;
+                break;
+            case "Padding":
+                if (!EvaluateSideableConventionChain("p", segments, emitted, ref pendingBreakpoint, TryMapScaleMember))
+                    return false;
+                break;
+            case "Gap":
+                if (!EvaluateGapConventionChain(segments, emitted, ref pendingBreakpoint))
+                    return false;
+                break;
+            case "Space":
+                if (!EvaluateSpaceConventionChain(segments, emitted, ref pendingBreakpoint))
+                    return false;
+                break;
+            case "Width":
+                if (!EvaluatePrefixedConventionChain("w", segments, emitted, ref pendingBreakpoint, TryMapGenericSizeMember))
+                    return false;
+                break;
+            case "Height":
+                if (!EvaluatePrefixedConventionChain("h", segments, emitted, ref pendingBreakpoint, TryMapGenericSizeMember))
+                    return false;
+                break;
+            case "MaxWidth":
+                if (!EvaluatePrefixedConventionChain("max-w", segments, emitted, ref pendingBreakpoint, TryMapGenericSizeMember))
+                    return false;
+                break;
+            case "MinWidth":
+                if (!EvaluatePrefixedConventionChain("min-w", segments, emitted, ref pendingBreakpoint, TryMapGenericSizeMember))
+                    return false;
+                break;
+            case "BackgroundColor":
+                if (!EvaluatePrefixedConventionChain("bg", segments, emitted, ref pendingBreakpoint, TryMapKebabMember))
+                    return false;
+                break;
+            case "BorderColor":
+                if (!EvaluatePrefixedConventionChain("border", segments, emitted, ref pendingBreakpoint, TryMapKebabMember))
+                    return false;
+                break;
+            case "TextColor":
+                if (!EvaluatePrefixedConventionChain("text", segments, emitted, ref pendingBreakpoint, TryMapKebabMember))
+                    return false;
+                break;
+            case "Rounded":
+                if (!EvaluatePrefixedConventionChain("rounded", segments, emitted, ref pendingBreakpoint, TryMapKebabMember))
+                    return false;
+                break;
+            case "FontWeight":
+                if (!EvaluatePrefixedConventionChain("font", segments, emitted, ref pendingBreakpoint, TryMapKebabMember))
+                    return false;
+                break;
+            case "TextTransform":
+                if (!EvaluateRawConventionChain(segments, emitted, ref pendingBreakpoint, TryMapKebabMember))
+                    return false;
+                break;
+            case "TextWrap":
+                if (!EvaluateRawConventionChain(segments, emitted, ref pendingBreakpoint, TryMapTextWrapMember))
+                    return false;
+                break;
+            case "Display":
+                if (!EvaluateRawConventionChain(segments, emitted, ref pendingBreakpoint, TryMapDisplayMember))
+                    return false;
+                break;
+            case "Align":
+                if (!EvaluateRawConventionChain(segments, emitted, ref pendingBreakpoint, TryMapAlignMember))
+                    return false;
+                break;
+            case "Border":
+                if (!EvaluateBorderConventionChain(segments, emitted, ref pendingBreakpoint))
+                    return false;
+                break;
+            default:
+                return false;
+        }
+
+        if (emitted.Count == 0)
+            return false;
+
+        classes = new List<string>(emitted.Count);
+
+        foreach (EmittedClass emittedClass in emitted)
+        {
+            string value = emittedClass.ToTailwindClass();
+
+            if (value.HasContent())
+                classes.Add(value);
+        }
+
+        return classes.Count > 0;
+    }
+
+    private static bool EvaluatePrefixedConventionChain(string utility, List<ChainSegment> segments, List<EmittedClass> emitted, ref string? pendingBreakpoint,
+        Func<string, string?> mapMember)
+    {
+        foreach (ChainSegment segment in segments)
+        {
+            if (TryConsumeBreakpointSegment(segment.Name, ref pendingBreakpoint))
+                continue;
+
+            if (string.Equals(segment.Name, "Token", StringComparison.Ordinal))
+            {
+                if (segment.Args.Count == 0)
+                    return false;
+
+                string? token = ParseQuotedTokenLiteral(segment.Args[0]);
+
+                if (!token.HasContent())
+                    return false;
+
+                emitted.Add(new EmittedClass(utility, token, null, pendingBreakpoint));
+                pendingBreakpoint = null;
+                continue;
+            }
+
+            string? mapped = mapMember(segment.Name);
+
+            if (!mapped.HasContent())
+                return false;
+
+            emitted.Add(new EmittedClass(utility, mapped, null, pendingBreakpoint));
+            pendingBreakpoint = null;
+        }
+
+        return true;
+    }
+
+    private static bool EvaluateSideableConventionChain(string baseUtility, List<ChainSegment> segments, List<EmittedClass> emitted, ref string? pendingBreakpoint,
+        Func<string, string?> mapMember)
+    {
+        foreach (ChainSegment segment in segments)
+        {
+            if (TryConsumeBreakpointSegment(segment.Name, ref pendingBreakpoint))
+                continue;
+
+            if (TryConsumeSideModifier(segment.Name, emitted, ref pendingBreakpoint))
+                continue;
+
+            if (string.Equals(segment.Name, "Token", StringComparison.Ordinal))
+            {
+                if (segment.Args.Count == 0)
+                    return false;
+
+                string? token = ParseQuotedTokenLiteral(segment.Args[0]);
+
+                if (!token.HasContent())
+                    return false;
+
+                emitted.Add(new EmittedClass(baseUtility, token, null, pendingBreakpoint));
+                pendingBreakpoint = null;
+                continue;
+            }
+
+            string? mapped = mapMember(segment.Name);
+
+            if (!mapped.HasContent())
+                return false;
+
+            emitted.Add(new EmittedClass(baseUtility, mapped, null, pendingBreakpoint));
+            pendingBreakpoint = null;
+        }
+
+        return true;
+    }
+
+    private static bool EvaluateGapConventionChain(List<ChainSegment> segments, List<EmittedClass> emitted, ref string? pendingBreakpoint)
+    {
+        string utility = "gap";
+
+        foreach (ChainSegment segment in segments)
+        {
+            if (TryConsumeBreakpointSegment(segment.Name, ref pendingBreakpoint))
+                continue;
+
+            if (string.Equals(segment.Name, "Column", StringComparison.Ordinal))
+            {
+                utility = "gap-x";
+                continue;
+            }
+
+            if (string.Equals(segment.Name, "Row", StringComparison.Ordinal))
+            {
+                utility = "gap-y";
+                continue;
+            }
+
+            if (string.Equals(segment.Name, "Token", StringComparison.Ordinal))
+            {
+                if (segment.Args.Count == 0)
+                    return false;
+
+                string? token = ParseQuotedTokenLiteral(segment.Args[0]);
+
+                if (!token.HasContent())
+                    return false;
+
+                emitted.Add(new EmittedClass(utility, token, null, pendingBreakpoint));
+                pendingBreakpoint = null;
+                continue;
+            }
+
+            string? mapped = TryMapScaleMember(segment.Name);
+
+            if (!mapped.HasContent())
+                return false;
+
+            emitted.Add(new EmittedClass(utility, mapped, null, pendingBreakpoint));
+            pendingBreakpoint = null;
+        }
+
+        return true;
+    }
+
+    private static bool EvaluateSpaceConventionChain(List<ChainSegment> segments, List<EmittedClass> emitted, ref string? pendingBreakpoint)
+    {
+        string utility = "space-x";
+
+        foreach (ChainSegment segment in segments)
+        {
+            if (TryConsumeBreakpointSegment(segment.Name, ref pendingBreakpoint))
+                continue;
+
+            if (string.Equals(segment.Name, "X", StringComparison.Ordinal))
+            {
+                utility = "space-x";
+                continue;
+            }
+
+            if (string.Equals(segment.Name, "Y", StringComparison.Ordinal))
+            {
+                utility = "space-y";
+                continue;
+            }
+
+            if (string.Equals(segment.Name, "XReverse", StringComparison.Ordinal))
+            {
+                emitted.Add(new EmittedClass("space-x-reverse", null, "space-x-reverse", pendingBreakpoint));
+                pendingBreakpoint = null;
+                continue;
+            }
+
+            if (string.Equals(segment.Name, "YReverse", StringComparison.Ordinal))
+            {
+                emitted.Add(new EmittedClass("space-y-reverse", null, "space-y-reverse", pendingBreakpoint));
+                pendingBreakpoint = null;
+                continue;
+            }
+
+            if (string.Equals(segment.Name, "Token", StringComparison.Ordinal))
+            {
+                if (segment.Args.Count == 0)
+                    return false;
+
+                string? token = ParseQuotedTokenLiteral(segment.Args[0]);
+
+                if (!token.HasContent())
+                    return false;
+
+                emitted.Add(new EmittedClass(utility, token, null, pendingBreakpoint));
+                pendingBreakpoint = null;
+                continue;
+            }
+
+            string? mapped = TryMapScaleMember(segment.Name);
+
+            if (!mapped.HasContent())
+                return false;
+
+            emitted.Add(new EmittedClass(utility, mapped, null, pendingBreakpoint));
+            pendingBreakpoint = null;
+        }
+
+        return true;
+    }
+
+    private static bool EvaluateRawConventionChain(List<ChainSegment> segments, List<EmittedClass> emitted, ref string? pendingBreakpoint,
+        Func<string, string?> mapMember)
+    {
+        foreach (ChainSegment segment in segments)
+        {
+            if (TryConsumeBreakpointSegment(segment.Name, ref pendingBreakpoint))
+                continue;
+
+            string? mapped = mapMember(segment.Name);
+
+            if (!mapped.HasContent())
+                return false;
+
+            emitted.Add(new EmittedClass(mapped, null, mapped, pendingBreakpoint));
+            pendingBreakpoint = null;
+        }
+
+        return true;
+    }
+
+    private static bool EvaluateBorderConventionChain(List<ChainSegment> segments, List<EmittedClass> emitted, ref string? pendingBreakpoint)
+    {
+        foreach (ChainSegment segment in segments)
+        {
+            if (TryConsumeBreakpointSegment(segment.Name, ref pendingBreakpoint))
+                continue;
+
+            if (TryConsumeSideModifier(segment.Name, emitted, ref pendingBreakpoint))
+                continue;
+
+            if (TryMapBorderMember(segment.Name, out string? rawClass, out string? token))
+            {
+                emitted.Add(rawClass.HasContent()
+                    ? new EmittedClass("border", null, rawClass, pendingBreakpoint)
+                    : new EmittedClass("border", token, null, pendingBreakpoint));
+                pendingBreakpoint = null;
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryConsumeBreakpointSegment(string segmentName, ref string? pendingBreakpoint)
+    {
+        string? breakpoint = ParseBreakpointSegment(segmentName);
+
+        if (breakpoint is null)
+            return false;
+
+        pendingBreakpoint = breakpoint;
+        return true;
+    }
+
+    private static bool TryConsumeSideModifier(string segmentName, List<EmittedClass> emitted, ref string? pendingBreakpoint)
+    {
+        string? side = segmentName switch
+        {
+            "FromTop" => "t",
+            "FromRight" => "e",
+            "FromBottom" => "b",
+            "FromLeft" => "s",
+            "OnX" => "x",
+            "OnY" => "y",
+            "FromStart" => "s",
+            "FromEnd" => "e",
+            "OnAll" => string.Empty,
+            _ => null
+        };
+
+        if (side is null)
+            return false;
+
+        if (emitted.Count == 0)
+            return false;
+
+        emitted[^1] = ApplySideMutation(emitted[^1], side, pendingBreakpoint);
+        pendingBreakpoint = null;
+        return true;
+    }
+
+    private static string? ParseBreakpointSegment(string segmentName)
+    {
+        return segmentName switch
+        {
+            "OnBase" => string.Empty,
+            "OnSm" => "sm",
+            "OnMd" => "md",
+            "OnLg" => "lg",
+            "OnXl" => "xl",
+            "On2xl" => "2xl",
+            _ => null
+        };
+    }
+
+    private static string? TryMapScaleMember(string segmentName)
+    {
+        if (!segmentName.StartsWith("Is", StringComparison.Ordinal) || segmentName.Length <= 2)
+            return null;
+
+        return MapScaleSuffix(segmentName.Substring(2));
+    }
+
+    private static string? TryMapGenericSizeMember(string segmentName)
+    {
+        if (segmentName.StartsWith("Is", StringComparison.Ordinal) && segmentName.Length > 2)
+            return MapScaleSuffix(segmentName.Substring(2));
+
+        return segmentName switch
+        {
+            "Full" => "full",
+            "Fit" => "fit",
+            "Screen" => "screen",
+            "Auto" => "auto",
+            "Min" => "min",
+            "Max" => "max",
+            "Sm" => "sm",
+            "Md" => "md",
+            "Lg" => "lg",
+            "Xl" => "xl",
+            _ => null
+        };
+    }
+
+    private static string? TryMapTextSizeMember(string segmentName)
+    {
+        return segmentName switch
+        {
+            "Xs" => "xs",
+            "Sm" => "sm",
+            "Base" => "base",
+            "Lg" => "lg",
+            "Xl" => "xl",
+            "TwoXl" => "2xl",
+            "ThreeXl" => "3xl",
+            "FourXl" => "4xl",
+            "FiveXl" => "5xl",
+            "SixXl" => "6xl",
+            _ => null
+        };
+    }
+
+    private static string? TryMapLetterSpacingMember(string segmentName)
+    {
+        return segmentName switch
+        {
+            "Tighter" => "tighter",
+            "Tight" => "tight",
+            "Normal" => "normal",
+            "Wide" => "wide",
+            "Wider" => "wider",
+            "Widest" => "widest",
+            _ => null
+        };
+    }
+
+    private static string? TryMapTextWrapMember(string segmentName)
+    {
+        return segmentName switch
+        {
+            "Wrap" => "text-wrap",
+            "Pretty" => "text-pretty",
+            "Balance" => "text-balance",
+            "Nowrap" => "whitespace-nowrap",
+            _ => null
+        };
+    }
+
+    private static string? TryMapDisplayMember(string segmentName)
+    {
+        return segmentName switch
+        {
+            "None" => "hidden",
+            _ => ToKebabCase(segmentName)
+        };
+    }
+
+    private static string? TryMapAlignMember(string segmentName)
+    {
+        string? kebab = ToKebabCase(segmentName);
+        return kebab.HasContent() ? kebab : null;
+    }
+
+    private static string? TryMapKebabMember(string segmentName)
+    {
+        string? kebab = ToKebabCase(segmentName);
+        return kebab.HasContent() ? kebab : null;
+    }
+
+    private static bool TryMapBorderMember(string segmentName, out string? rawClass, out string? token)
+    {
+        rawClass = null;
+        token = null;
+
+        if (!segmentName.StartsWith("Is", StringComparison.Ordinal) || segmentName.Length <= 2)
+            return false;
+
+        string suffix = segmentName.Substring(2);
+
+        if (string.Equals(suffix, "1", StringComparison.Ordinal))
+        {
+            rawClass = "border";
+            return true;
+        }
+
+        token = MapScaleSuffix(suffix);
+        return token.HasContent();
+    }
+
+    private static string? MapScaleSuffix(string suffix)
+    {
+        return suffix switch
+        {
+            "Full" => "full",
+            "Fit" => "fit",
+            "Screen" => "screen",
+            "Auto" => "auto",
+            _ => suffix.ToLowerInvariant()
+        };
+    }
+
+    private static string? ToKebabCase(string value)
+    {
+        if (value.IsNullOrWhiteSpace())
+            return null;
+
+        var sb = new System.Text.StringBuilder(value.Length + 4);
+
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+
+            if (char.IsUpper(c))
+            {
+                if (i > 0)
+                    sb.Append('-');
+
+                sb.Append(char.ToLowerInvariant(c));
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        return sb.ToString();
     }
 
     private static Dictionary<string, InvocationAction> CollectBuilderMemberActions(string className, string body)
@@ -964,6 +1520,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         return emitted with
         {
             Utility = ApplySideToUtility(emitted.Utility, side),
+            RawClass = null,
             Breakpoint = breakpoint
         };
     }
@@ -985,6 +1542,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         return emitted with
         {
             Utility = utility,
+            RawClass = null,
             Breakpoint = breakpoint
         };
     }
