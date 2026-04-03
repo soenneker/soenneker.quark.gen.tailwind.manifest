@@ -1265,14 +1265,29 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         arg = arg.Trim();
 
         if (arg.Length >= 2 && arg[0] == '"' && arg[^1] == '"')
-            return arg.Substring(1, arg.Length - 2)
-                      .Replace("\\\"", "\"", StringComparison.Ordinal);
+            return NormalizeLiteralToken(arg.Substring(1, arg.Length - 2)
+                                            .Replace("\\\"", "\"", StringComparison.Ordinal)
+                                            .Replace("\"\"", "\"", StringComparison.Ordinal));
 
         if (arg.Length >= 3 && arg[0] == '@' && arg[1] == '"' && arg[^1] == '"')
-            return arg.Substring(2, arg.Length - 3)
-                      .Replace("\"\"", "\"", StringComparison.Ordinal);
+            return NormalizeLiteralToken(arg.Substring(2, arg.Length - 3)
+                                            .Replace("\"\"", "\"", StringComparison.Ordinal)
+                                            .Replace("\\\"", "\"", StringComparison.Ordinal));
 
         return null;
+    }
+
+    private static string NormalizeLiteralToken(string value)
+    {
+        value = value.Trim();
+
+        while (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+        {
+            value = value.Substring(1, value.Length - 2)
+                         .Trim();
+        }
+
+        return value;
     }
 
     private static List<string> SplitArguments(string args)
@@ -1461,6 +1476,12 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (token.Length < 2)
             return false;
 
+        if (IsBareArbitraryValue(token))
+            return false;
+
+        if (HasUnbracketedDot(token))
+            return false;
+
         if (token.IndexOfAny(_disallowedInTailwindClass) >= 0)
             return false;
 
@@ -1482,6 +1503,38 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
 
         return hasLetter;
+    }
+
+    private static bool IsBareArbitraryValue(ReadOnlySpan<char> token)
+    {
+        return token.Length >= 2 && token[0] == '[' && token[^1] == ']';
+    }
+
+    private static bool HasUnbracketedDot(ReadOnlySpan<char> token)
+    {
+        var bracketDepth = 0;
+
+        for (int i = 0; i < token.Length; i++)
+        {
+            char c = token[i];
+
+            switch (c)
+            {
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    if (bracketDepth > 0)
+                        bracketDepth--;
+                    break;
+                case '.':
+                    if (bracketDepth == 0)
+                        return true;
+                    break;
+            }
+        }
+
+        return false;
     }
 
     private static void AddCandidateClassString(ISet<string> target, string value)
