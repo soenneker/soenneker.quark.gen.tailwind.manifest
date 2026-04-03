@@ -23,7 +23,43 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static readonly string[] _responsivePrefixes = ["", "sm:", "md:", "lg:", "xl:", "2xl:"];
 
-    private readonly record struct TailwindBuilderMetadata(string Prefix, bool Responsive);
+    private enum InvocationActionKind
+    {
+        AddBuilderTokenFromArgument,
+        AddBuilderTokenLiteral,
+        AddUtilityTokenFromArgument,
+        AddUtilityTokenLiteral,
+        AddLiteralClass,
+        AddLastUtilityTokenFromArgument,
+        SetPendingBreakpoint,
+        MutateLastSide,
+        MutateLastDirection
+    }
+
+    private readonly record struct InvocationAction(InvocationActionKind Kind, string? Value = null, string? Value2 = null);
+
+    private readonly record struct TailwindBuilderMetadata(string Prefix, bool Responsive, Dictionary<string, InvocationAction> Members);
+
+    private readonly record struct TailwindFacadeMetadata(TailwindBuilderMetadata? Builder, Dictionary<string, InvocationAction> Members);
+
+    private readonly record struct ChainSegment(string Name, List<string> Args);
+
+    private readonly record struct EmittedClass(string? Utility, string? Token, string? RawClass, string? Breakpoint)
+    {
+        public string ToTailwindClass()
+        {
+            string className = RawClass.HasContent()
+                ? RawClass
+                : Token.HasContent()
+                    ? $"{Utility}-{Token}"
+                    : Utility ?? string.Empty;
+
+            if (!Breakpoint.HasContent())
+                return className;
+
+            return $"{Breakpoint}:{className}";
+        }
+    }
 
     [GeneratedRegex(
         @"\[(?<attr>[^\]]*TailwindPrefix[^\]]*)\]\s*(?:(?:public|internal|private|protected)\s+)?(?:sealed\s+)?class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b(?<after>[^{]*)\{",
@@ -47,9 +83,19 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         RegexOptions.Singleline)]
     private static partial Regex StaticTokenInvocationRegex();
 
+    [GeneratedRegex(
+        @"public\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\((?<params>[^)]*)\))?\s*=>\s*(?<method>[A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(?<args>[^;]*)\)\s*;",
+        RegexOptions.Singleline)]
+    private static partial Regex BuilderMemberRegex();
+
     [GeneratedRegex(@"public\s+(?<type>[A-Za-z_][A-Za-z0-9_]*)\s+(?<prop>[A-Za-z_][A-Za-z0-9_]*)\s*=>\s*(?<method>Chain[A-Za-z]*)\s*\(\s*(?<args>[^;]*)\)\s*;",
         RegexOptions.Singleline)]
     private static partial Regex ChainPropRegex();
+
+    [GeneratedRegex(
+        @"public\s+static\s+(?<builder>[A-Za-z_][A-Za-z0-9_]*)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\((?<params>[^)]*)\))?\s*=>\s*new\s*\(\s*(?<args>[^;]*)\)\s*;",
+        RegexOptions.Singleline)]
+    private static partial Regex StaticBuilderMemberRegex();
 
     [GeneratedRegex(@"\b(?:class|Class)\s*=\s*""(?<classes>[^""]+)""", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex RazorClassAttributeRegex();
@@ -217,7 +263,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
 
         Dictionary<string, TailwindBuilderMetadata> builders = CollectBuilderMetadata(csSources);
-        Dictionary<string, TailwindBuilderMetadata> tokenFacades = CollectTokenFacadeMetadata(csSources, builders);
+        Dictionary<string, TailwindFacadeMetadata> tokenFacades = CollectTokenFacadeMetadata(csSources, builders);
 
         foreach ((string file, string text) in csSources)
         {
@@ -269,7 +315,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
     }
 
-    private void ProcessCsFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, TailwindBuilderMetadata> tokenFacades,
+    private void ProcessCsFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, TailwindFacadeMetadata> tokenFacades,
         ref int tailwindPrefixClasses, ref int componentCodeClasses)
     {
         foreach (Match match in ClassWithAttrRegex()
@@ -323,10 +369,10 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             LogClasses("[TailwindPrefix]", file, classNames, added, prefix, responsive, className);
         }
 
-        AddStaticTokenInvocationClasses(file, text, tokenFacades, uniqueLines, ref componentCodeClasses);
+        AddFluentInvocationClasses(file, text, tokenFacades, uniqueLines, ref componentCodeClasses);
     }
 
-    private void ProcessRazorFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, TailwindBuilderMetadata> tokenFacades,
+    private void ProcessRazorFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, TailwindFacadeMetadata> tokenFacades,
         ref int razorClasses)
     {
         var classNames = new HashSet<string>(StringComparer.Ordinal);
@@ -345,14 +391,15 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         AddGeneralClassStrings(classNames, text);
 
-        if (classNames.Count == 0)
-            return;
+        if (classNames.Count > 0)
+        {
+            int added = AddManifestClasses(uniqueLines, classNames, responsive: false);
+            razorClasses += added;
 
-        int added = AddManifestClasses(uniqueLines, classNames, responsive: false);
-        razorClasses += added;
+            LogClasses("[Razor]", file, classNames, added);
+        }
 
-        LogClasses("[Razor]", file, classNames, added);
-        AddStaticTokenInvocationClasses(file, text, tokenFacades, uniqueLines, ref razorClasses);
+        AddFluentInvocationClasses(file, text, tokenFacades, uniqueLines, ref razorClasses);
     }
 
     private static Dictionary<string, TailwindBuilderMetadata> CollectBuilderMetadata(List<(string File, string Text)> csSources)
@@ -372,17 +419,23 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 bool responsive = !attrMatch.Groups["resp"].Success || !bool.TryParse(attrMatch.Groups["resp"].Value, out bool parsedResponsive) ||
                                   parsedResponsive;
 
-                result[match.Groups["name"].Value] = new TailwindBuilderMetadata(prefix, responsive);
+                int braceIdx = match.Index + match.Length - 1;
+                string? body = TryGetClassBody(text, braceIdx);
+                var members = body is null
+                    ? new Dictionary<string, InvocationAction>(StringComparer.Ordinal)
+                    : CollectBuilderMemberActions(match.Groups["name"].Value, body);
+
+                result[match.Groups["name"].Value] = new TailwindBuilderMetadata(prefix, responsive, members);
             }
         }
 
         return result;
     }
 
-    private static Dictionary<string, TailwindBuilderMetadata> CollectTokenFacadeMetadata(List<(string File, string Text)> csSources,
+    private static Dictionary<string, TailwindFacadeMetadata> CollectTokenFacadeMetadata(List<(string File, string Text)> csSources,
         Dictionary<string, TailwindBuilderMetadata> builders)
     {
-        var result = new Dictionary<string, TailwindBuilderMetadata>(StringComparer.Ordinal);
+        var result = new Dictionary<string, TailwindFacadeMetadata>(StringComparer.Ordinal);
 
         foreach ((_, string text) in csSources)
         {
@@ -395,42 +448,52 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 if (body is null)
                     continue;
 
-                Match tokenMethod = StaticTokenMethodRegex().Match(body);
+                var members = new Dictionary<string, InvocationAction>(StringComparer.Ordinal);
+                TailwindBuilderMetadata? builderMetadata = null;
 
-                if (!tokenMethod.Success)
-                    continue;
+                foreach (Match memberMatch in StaticBuilderMemberRegex().Matches(body))
+                {
+                    string builderName = memberMatch.Groups["builder"].Value;
 
-                string builderName = tokenMethod.Groups["builder"].Value;
+                    if (!builders.TryGetValue(builderName, out TailwindBuilderMetadata metadata))
+                        continue;
 
-                if (builders.TryGetValue(builderName, out TailwindBuilderMetadata metadata))
-                    result[facadeName] = metadata;
+                    if (TryCreateFacadeAction(memberMatch.Groups["params"].Value, SplitArguments(memberMatch.Groups["args"].Value), metadata, out InvocationAction action))
+                    {
+                        members[memberMatch.Groups["name"].Value] = action;
+                        builderMetadata ??= metadata;
+                    }
+                }
+
+                if (members.Count > 0)
+                    result[facadeName] = new TailwindFacadeMetadata(builderMetadata, members);
             }
         }
 
         return result;
     }
 
-    private void AddStaticTokenInvocationClasses(string file, string text, Dictionary<string, TailwindBuilderMetadata> tokenFacades,
+    private void AddFluentInvocationClasses(string file, string text, Dictionary<string, TailwindFacadeMetadata> tokenFacades,
         HashSet<string> uniqueLines, ref int count)
     {
         var classNames = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (Match match in StaticTokenInvocationRegex().Matches(text))
+        foreach ((string root, List<ChainSegment> segments) in EnumerateFluentChains(text))
         {
-            string root = match.Groups["root"].Value;
-
-            if (!tokenFacades.TryGetValue(root, out TailwindBuilderMetadata metadata))
+            if (!tokenFacades.TryGetValue(root, out TailwindFacadeMetadata facade))
                 continue;
 
-            string? token = ParseQuotedTokenLiteral(match.Groups["token"].Value);
-
-            if (!token.HasContent())
+            if (!ContainsTokenSegment(segments))
                 continue;
 
-            string className = BuildPrefixedClass(metadata.Prefix, token);
+            if (!TryEvaluateChain(facade, segments, out List<string>? classes))
+                continue;
 
-            if (className.HasContent())
-                classNames.Add(className);
+            foreach (string className in classes!)
+            {
+                if (className.HasContent())
+                    classNames.Add(className);
+            }
         }
 
         if (classNames.Count == 0)
@@ -438,7 +501,638 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         int added = AddManifestClasses(uniqueLines, classNames, responsive: false);
         count += added;
-        LogClasses("[Token]", file, classNames, added);
+        LogClasses("[Fluent]", file, classNames, added);
+    }
+
+    private static bool ContainsTokenSegment(List<ChainSegment> segments)
+    {
+        for (var i = 0; i < segments.Count; i++)
+        {
+            if (string.Equals(segments[i].Name, "Token", StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static Dictionary<string, InvocationAction> CollectBuilderMemberActions(string className, string body)
+    {
+        var result = new Dictionary<string, InvocationAction>(StringComparer.Ordinal);
+
+        foreach (Match match in BuilderMemberRegex().Matches(body))
+        {
+            if (!string.Equals(match.Groups["type"].Value, className, StringComparison.Ordinal))
+                continue;
+
+            if (TryCreateBuilderAction(match.Groups["params"].Value, match.Groups["method"].Value, SplitArguments(match.Groups["args"].Value),
+                    out InvocationAction action))
+            {
+                result[match.Groups["name"].Value] = action;
+            }
+        }
+
+        return result;
+    }
+
+    private static bool TryCreateBuilderAction(string parameters, string methodName, List<string> args, out InvocationAction action)
+    {
+        action = default;
+        string? parameterName = GetSingleParameterName(parameters);
+
+        if (string.Equals(methodName, "SetPendingBreakpoint", StringComparison.Ordinal) ||
+            string.Equals(methodName, "ChainBreakpoint", StringComparison.Ordinal))
+        {
+            string? breakpoint = args.Count > 0 ? ParseBreakpoint(args[0]) : null;
+
+            if (breakpoint is null && args.Count > 0 && IsBaseBreakpoint(args[0]))
+                breakpoint = string.Empty;
+
+            if (breakpoint is null)
+                return false;
+
+            action = new InvocationAction(InvocationActionKind.SetPendingBreakpoint, breakpoint);
+            return true;
+        }
+
+        if (string.Equals(methodName, "AddRule", StringComparison.Ordinal))
+        {
+            string? side = args.Count > 0 ? ParseElementSide(args[0]) : null;
+
+            if (!side.HasContent() && !IsAllElementSide(args.Count > 0 ? args[0] : null))
+                return false;
+
+            action = new InvocationAction(InvocationActionKind.MutateLastSide, side ?? string.Empty);
+            return true;
+        }
+
+        if (string.Equals(methodName, "ChainWithDirection", StringComparison.Ordinal))
+        {
+            string? direction = args.Count > 0 ? ParseQuotedTokenLiteral(args[0]) : null;
+
+            if (!direction.HasContent())
+                return false;
+
+            action = new InvocationAction(InvocationActionKind.MutateLastDirection, direction);
+            return true;
+        }
+
+        if (IsBuilderTokenMethod(methodName))
+        {
+            if (args.Count == 0)
+                return false;
+
+            if (parameterName.HasContent() && string.Equals(args[0].Trim(), parameterName, StringComparison.Ordinal))
+            {
+                action = new InvocationAction(InvocationActionKind.AddBuilderTokenFromArgument);
+                return true;
+            }
+
+            string? literalToken = ParseTokenLiteral(args[0]);
+
+            if (!literalToken.HasContent())
+                return false;
+
+            action = new InvocationAction(InvocationActionKind.AddBuilderTokenLiteral, literalToken);
+            return true;
+        }
+
+        if (!string.Equals(methodName, "Chain", StringComparison.Ordinal))
+            return false;
+
+        if (args.Count < 2)
+            return false;
+
+        string utilityExpr = args[0].Trim();
+        string valueExpr = args[1].Trim();
+
+        if (parameterName.HasContent() && string.Equals(valueExpr, parameterName, StringComparison.Ordinal))
+        {
+            string? utilityLiteral = ParseQuotedTokenLiteral(utilityExpr);
+
+            if (utilityLiteral.HasContent())
+            {
+                action = new InvocationAction(InvocationActionKind.AddUtilityTokenFromArgument, utilityLiteral);
+                return true;
+            }
+
+            string? fallbackUtility = ParseFallbackUtilityExpression(utilityExpr);
+
+            if (fallbackUtility.HasContent())
+            {
+                action = new InvocationAction(InvocationActionKind.AddLastUtilityTokenFromArgument, fallbackUtility);
+                return true;
+            }
+
+            return false;
+        }
+
+        string? utility = ParseQuotedTokenLiteral(utilityExpr);
+        string? value = ParseTokenLiteral(valueExpr);
+
+        if (!utility.HasContent())
+            return false;
+
+        action = new InvocationAction(InvocationActionKind.AddUtilityTokenLiteral, utility, value ?? string.Empty);
+        return true;
+    }
+
+    private static bool TryCreateFacadeAction(string parameters, List<string> args, TailwindBuilderMetadata metadata, out InvocationAction action)
+    {
+        action = default;
+        string? parameterName = GetSingleParameterName(parameters);
+
+        if (args.Count == 1)
+        {
+            string arg = args[0].Trim();
+
+            if (parameterName.HasContent() && string.Equals(arg, parameterName, StringComparison.Ordinal))
+            {
+                action = new InvocationAction(InvocationActionKind.AddBuilderTokenFromArgument);
+                return true;
+            }
+
+            string? literalToken = ParseTokenLiteral(arg);
+
+            if (!literalToken.HasContent())
+                return false;
+
+            if (LooksLikeFullClassLiteral(literalToken, metadata.Prefix))
+            {
+                action = new InvocationAction(InvocationActionKind.AddLiteralClass, literalToken);
+                return true;
+            }
+
+            action = new InvocationAction(InvocationActionKind.AddBuilderTokenLiteral, literalToken);
+            return true;
+        }
+
+        if (args.Count != 2)
+            return false;
+
+        string? utility = ParseQuotedTokenLiteral(args[0]);
+
+        if (!utility.HasContent())
+            return false;
+
+        string valueExpr = args[1].Trim();
+
+        if (parameterName.HasContent() && string.Equals(valueExpr, parameterName, StringComparison.Ordinal))
+        {
+            action = new InvocationAction(InvocationActionKind.AddUtilityTokenFromArgument, utility);
+            return true;
+        }
+
+        string? literalValue = ParseTokenLiteral(valueExpr);
+
+        if (!literalValue.HasContent())
+            return false;
+
+        action = new InvocationAction(InvocationActionKind.AddUtilityTokenLiteral, utility, literalValue);
+        return true;
+    }
+
+    private static bool TryEvaluateChain(TailwindFacadeMetadata facade, List<ChainSegment> segments, out List<string>? classes)
+    {
+        classes = null;
+
+        if (segments.Count == 0)
+            return false;
+
+        var emitted = new List<EmittedClass>(4);
+        TailwindBuilderMetadata? builder = facade.Builder;
+        string? pendingBreakpoint = null;
+
+        foreach (ChainSegment segment in segments)
+        {
+            InvocationAction action;
+
+            if (facade.Members.TryGetValue(segment.Name, out InvocationAction facadeAction))
+            {
+                action = facadeAction;
+            }
+            else if (builder is TailwindBuilderMetadata builderMetadata && builderMetadata.Members.TryGetValue(segment.Name, out InvocationAction builderAction))
+            {
+                action = builderAction;
+            }
+            else
+            {
+                return false;
+            }
+
+            if (!TryApplyInvocationAction(action, builder, segment.Args, emitted, ref pendingBreakpoint))
+                return false;
+        }
+
+        if (emitted.Count == 0)
+            return false;
+
+        classes = new List<string>(emitted.Count);
+
+        foreach (EmittedClass item in emitted)
+        {
+            string value = item.ToTailwindClass();
+
+            if (value.HasContent())
+                classes.Add(value);
+        }
+
+        return classes.Count > 0;
+    }
+
+    private static bool TryApplyInvocationAction(InvocationAction action, TailwindBuilderMetadata? builder, List<string> args, List<EmittedClass> emitted,
+        ref string? pendingBreakpoint)
+    {
+        switch (action.Kind)
+        {
+            case InvocationActionKind.AddBuilderTokenFromArgument:
+            {
+                if (builder is not TailwindBuilderMetadata builderMetadata || args.Count == 0)
+                    return false;
+
+                string? token = ParseQuotedTokenLiteral(args[0]);
+
+                if (!token.HasContent())
+                    return false;
+
+                emitted.Add(CreateBuilderTokenClass(builderMetadata.Prefix, token, pendingBreakpoint));
+                pendingBreakpoint = null;
+                return true;
+            }
+            case InvocationActionKind.AddBuilderTokenLiteral:
+            {
+                if (builder is not TailwindBuilderMetadata builderMetadata || !action.Value.HasContent())
+                    return false;
+
+                emitted.Add(CreateBuilderTokenClass(builderMetadata.Prefix, action.Value, pendingBreakpoint));
+                pendingBreakpoint = null;
+                return true;
+            }
+            case InvocationActionKind.AddUtilityTokenFromArgument:
+            {
+                if (!action.Value.HasContent() || args.Count == 0)
+                    return false;
+
+                string? token = ParseQuotedTokenLiteral(args[0]);
+
+                if (!token.HasContent())
+                    return false;
+
+                emitted.Add(new EmittedClass(action.Value, token, null, pendingBreakpoint));
+                pendingBreakpoint = null;
+                return true;
+            }
+            case InvocationActionKind.AddUtilityTokenLiteral:
+            {
+                if (!action.Value.HasContent())
+                    return false;
+
+                emitted.Add(new EmittedClass(action.Value, action.Value2, null, pendingBreakpoint));
+                pendingBreakpoint = null;
+                return true;
+            }
+            case InvocationActionKind.AddLiteralClass:
+            {
+                if (!action.Value.HasContent())
+                    return false;
+
+                emitted.Add(new EmittedClass(null, null, action.Value, pendingBreakpoint));
+                pendingBreakpoint = null;
+                return true;
+            }
+            case InvocationActionKind.AddLastUtilityTokenFromArgument:
+            {
+                if (args.Count == 0)
+                    return false;
+
+                string? token = ParseQuotedTokenLiteral(args[0]);
+
+                if (!token.HasContent())
+                    return false;
+
+                string? utility = emitted.Count > 0 ? emitted[^1].Utility : action.Value;
+
+                if (!utility.HasContent())
+                    return false;
+
+                emitted.Add(new EmittedClass(utility, token, null, pendingBreakpoint));
+                pendingBreakpoint = null;
+                return true;
+            }
+            case InvocationActionKind.SetPendingBreakpoint:
+                pendingBreakpoint = action.Value ?? string.Empty;
+                return true;
+            case InvocationActionKind.MutateLastSide:
+            {
+                if (emitted.Count == 0)
+                    return false;
+
+                emitted[^1] = ApplySideMutation(emitted[^1], action.Value ?? string.Empty, pendingBreakpoint);
+                pendingBreakpoint = null;
+                return true;
+            }
+            case InvocationActionKind.MutateLastDirection:
+            {
+                if (emitted.Count == 0)
+                    return false;
+
+                emitted[^1] = ApplyDirectionMutation(emitted[^1], action.Value, pendingBreakpoint);
+                pendingBreakpoint = null;
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    private static IEnumerable<(string Root, List<ChainSegment> Segments)> EnumerateFluentChains(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (!IsIdentifierStart(text[i]))
+                continue;
+
+            int rootStart = i;
+            int rootEnd = ReadIdentifier(text, i);
+            int cursor = SkipWhitespace(text, rootEnd);
+
+            if (cursor >= text.Length || text[cursor] != '.')
+                continue;
+
+            var segments = new List<ChainSegment>(4);
+            int end = cursor;
+
+            while (cursor < text.Length && text[cursor] == '.')
+            {
+                cursor++;
+                cursor = SkipWhitespace(text, cursor);
+
+                if (cursor >= text.Length || !IsIdentifierStart(text[cursor]))
+                    break;
+
+                int nameStart = cursor;
+                int nameEnd = ReadIdentifier(text, cursor);
+                string name = text.Substring(nameStart, nameEnd - nameStart);
+                cursor = SkipWhitespace(text, nameEnd);
+                var args = new List<string>(2);
+
+                if (cursor < text.Length && text[cursor] == '(')
+                {
+                    if (!TryReadParenthesized(text, cursor, out string? argsText, out int closeIndex))
+                        break;
+
+                    args = SplitArguments(argsText!);
+                    cursor = closeIndex + 1;
+                }
+
+                segments.Add(new ChainSegment(name, args));
+                end = cursor;
+                cursor = SkipWhitespace(text, cursor);
+            }
+
+            if (segments.Count > 0)
+                yield return (text.Substring(rootStart, rootEnd - rootStart), segments);
+
+            i = Math.Max(i, end - 1);
+        }
+    }
+
+    private static bool TryReadParenthesized(string text, int openParenIndex, out string? value, out int closeIndex)
+    {
+        value = null;
+        closeIndex = -1;
+
+        var depth = 0;
+        var inString = false;
+
+        for (int i = openParenIndex; i < text.Length; i++)
+        {
+            char c = text[i];
+
+            if (c == '"' && (i == 0 || text[i - 1] != '\\'))
+            {
+                inString = !inString;
+            }
+
+            if (inString)
+                continue;
+
+            if (c == '(')
+            {
+                depth++;
+                continue;
+            }
+
+            if (c != ')')
+                continue;
+
+            depth--;
+
+            if (depth != 0)
+                continue;
+
+            closeIndex = i;
+            value = text.Substring(openParenIndex + 1, i - openParenIndex - 1);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static EmittedClass CreateBuilderTokenClass(string prefix, string token, string? breakpoint)
+    {
+        if (prefix.IsNullOrWhiteSpace())
+            return new EmittedClass(null, null, token, breakpoint);
+
+        string utility = prefix.TrimEnd('-', ':');
+
+        if (!utility.HasContent())
+            return new EmittedClass(null, null, BuildPrefixedClass(prefix, token), breakpoint);
+
+        return new EmittedClass(utility, token, null, breakpoint);
+    }
+
+    private static EmittedClass ApplySideMutation(EmittedClass emitted, string side, string? pendingBreakpoint)
+    {
+        string breakpoint = pendingBreakpoint ?? emitted.Breakpoint ?? string.Empty;
+
+        if (!emitted.Utility.HasContent())
+            return emitted with { Breakpoint = breakpoint };
+
+        if (!side.HasContent())
+            return emitted with { Breakpoint = breakpoint };
+
+        return emitted with
+        {
+            Utility = ApplySideToUtility(emitted.Utility, side),
+            Breakpoint = breakpoint
+        };
+    }
+
+    private static EmittedClass ApplyDirectionMutation(EmittedClass emitted, string? direction, string? pendingBreakpoint)
+    {
+        string breakpoint = pendingBreakpoint ?? emitted.Breakpoint ?? string.Empty;
+
+        if (!emitted.Utility.HasContent())
+            return emitted with { Breakpoint = breakpoint };
+
+        string? utility = direction switch
+        {
+            "column" => "gap-x",
+            "row" => "gap-y",
+            _ => emitted.Utility
+        };
+
+        return emitted with
+        {
+            Utility = utility,
+            Breakpoint = breakpoint
+        };
+    }
+
+    private static string ApplySideToUtility(string utility, string side)
+    {
+        int lastDash = utility.LastIndexOf('-');
+        string suffix = lastDash >= 0 ? utility.Substring(lastDash + 1) : utility;
+
+        if (suffix.Length == 1)
+            return utility + side;
+
+        return utility + "-" + side;
+    }
+
+    private static bool IsBuilderTokenMethod(string methodName)
+    {
+        return string.Equals(methodName, "ChainSize", StringComparison.Ordinal) ||
+               string.Equals(methodName, "ChainWithSize", StringComparison.Ordinal) ||
+               string.Equals(methodName, "ChainValue", StringComparison.Ordinal) ||
+               string.Equals(methodName, "ChainWithValue", StringComparison.Ordinal);
+    }
+
+    private static string? ParseTokenLiteral(string arg)
+    {
+        string? token = ParseQuotedTokenLiteral(arg);
+
+        if (token.HasContent())
+            return token;
+
+        arg = arg.Trim();
+
+        if (!arg.StartsWith("ScaleType.Is", StringComparison.Ordinal))
+            return null;
+
+        string value = arg.Substring("ScaleType.Is".Length);
+
+        if (value.EndsWith("Value", StringComparison.Ordinal))
+            value = value.Substring(0, value.Length - "Value".Length);
+
+        return value.ToLowerInvariant();
+    }
+
+    private static string? ParseBreakpoint(string arg)
+    {
+        arg = arg.Trim();
+
+        return arg switch
+        {
+            "BreakpointType.Base" => string.Empty,
+            "BreakpointType.Sm" => "sm",
+            "BreakpointType.Md" => "md",
+            "BreakpointType.Lg" => "lg",
+            "BreakpointType.Xl" => "xl",
+            "BreakpointType.Xxl" => "2xl",
+            _ => null
+        };
+    }
+
+    private static bool IsBaseBreakpoint(string? arg)
+    {
+        return string.Equals(arg?.Trim(), "BreakpointType.Base", StringComparison.Ordinal);
+    }
+
+    private static string? ParseElementSide(string arg)
+    {
+        arg = arg.Trim();
+
+        return arg switch
+        {
+            "ElementSideType.Top" => "t",
+            "ElementSideType.Right" => "e",
+            "ElementSideType.Bottom" => "b",
+            "ElementSideType.Left" => "s",
+            "ElementSideType.Horizontal" => "x",
+            "ElementSideType.Vertical" => "y",
+            "ElementSideType.InlineStart" => "s",
+            "ElementSideType.InlineEnd" => "e",
+            _ => null
+        };
+    }
+
+    private static bool IsAllElementSide(string? arg)
+    {
+        return string.Equals(arg?.Trim(), "ElementSideType.All", StringComparison.Ordinal);
+    }
+
+    private static string? ParseFallbackUtilityExpression(string expression)
+    {
+        int quoteStart = expression.LastIndexOf('"');
+
+        if (quoteStart < 1)
+            return null;
+
+        int quoteEnd = expression.LastIndexOf('"', quoteStart - 1);
+
+        if (quoteEnd < 0)
+            return null;
+
+        return expression.Substring(quoteEnd + 1, quoteStart - quoteEnd - 1);
+    }
+
+    private static string? GetSingleParameterName(string parameters)
+    {
+        parameters = parameters.Trim();
+
+        if (parameters.Length == 0 || parameters.IndexOf(',') >= 0)
+            return null;
+
+        int lastSpace = parameters.LastIndexOf(' ');
+
+        if (lastSpace < 0 || lastSpace == parameters.Length - 1)
+            return null;
+
+        return parameters.Substring(lastSpace + 1)
+                         .Trim();
+    }
+
+    private static bool LooksLikeFullClassLiteral(string value, string prefix)
+    {
+        string trimmedPrefix = prefix.TrimEnd('-', ':');
+
+        return trimmedPrefix.HasContent() && value.StartsWith(trimmedPrefix, StringComparison.Ordinal);
+    }
+
+    private static bool IsIdentifierStart(char c)
+    {
+        return char.IsLetter(c) || c == '_';
+    }
+
+    private static int ReadIdentifier(string text, int index)
+    {
+        int i = index;
+
+        while (i < text.Length && (char.IsLetterOrDigit(text[i]) || text[i] == '_'))
+            i++;
+
+        return i;
+    }
+
+    private static int SkipWhitespace(string text, int index)
+    {
+        int i = index;
+
+        while (i < text.Length && char.IsWhiteSpace(text[i]))
+            i++;
+
+        return i;
     }
 
     private void LogClasses(string tag, string file, HashSet<string> classNames, int added, string? prefix = null, bool? responsive = null,
