@@ -20,7 +20,10 @@ namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
 /// <inheritdoc cref="IQuarkTailwindManifestGenerator"/>
 public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGenerator
 {
-    private const string _inlineGeneratedTxtFileName = "tw-inline.generated.txt";
+    private const string _projectManifestFileName = "quark-tailwind-manifest.txt";
+    private const string _suiteManifestFileName = "quark-suite-tailwind-manifest.txt";
+    private const string _projectMode = "project";
+    private const string _suiteMode = "suite";
 
     private static readonly string[] _responsivePrefixes = ["", "sm:", "md:", "lg:", "xl:", "2xl:"];
 
@@ -88,9 +91,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         _directoryUtil = directoryUtil;
     }
 
-    public async ValueTask<int> Run(CancellationToken cancellationToken)
+    public async ValueTask<int> Run(string[] args, CancellationToken cancellationToken)
     {
-        string[] args = Environment.GetCommandLineArgs();
         Dictionary<string, string> map = ParseArgs(args);
 
         if (!map.TryGetValue("--projectDir", out string? projectDir) || projectDir.IsNullOrWhiteSpace())
@@ -98,40 +100,10 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         projectDir = NormalizeFullPath(projectDir);
 
-        var sourceRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            projectDir
-        };
-
-        if (map.TryGetValue("--sourceDirs", out string? sourceDirs) && sourceDirs.HasContent())
-        {
-            foreach (string dir in sourceDirs.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                if (dir.Length == 0)
-                    continue;
-
-                sourceRoots.Add(NormalizeFullPath(dir));
-            }
-        }
-
-        string? projectParent = Path.GetDirectoryName(projectDir);
-
-        if (projectParent.HasContent() && await _directoryUtil.Exists(projectParent, cancellationToken)
-                                                              .NoSync())
-            sourceRoots.Add(projectParent);
-
-        if (projectParent.HasContent() && string.Equals(Path.GetFileName(projectParent), "src", StringComparison.OrdinalIgnoreCase))
-        {
-            string? projectGrandparent = Path.GetDirectoryName(projectParent);
-
-            if (projectGrandparent.HasContent() && await _directoryUtil.Exists(projectGrandparent, cancellationToken)
-                                                                        .NoSync())
-                sourceRoots.Add(projectGrandparent);
-        }
-
+        string mode = ResolveScanMode(map);
         string outputPath = map.TryGetValue("--manifestOutput", out string? manifestOutput) && manifestOutput.HasContent()
             ? NormalizeFullPath(manifestOutput)
-            : Path.Combine(projectDir, "tailwind", _inlineGeneratedTxtFileName);
+            : Path.Combine(projectDir, "tailwind", GetDefaultOutputFileName(mode));
 
         string? outputDir = Path.GetDirectoryName(outputPath);
 
@@ -139,98 +111,119 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             await _directoryUtil.Create(outputDir, log: false, cancellationToken)
                                 .NoSync();
 
-        _logger.LogInformation("Starting Tailwind manifest generation for project {ProjectDir}.", projectDir);
-        _logger.LogInformation("Generating inline Tailwind manifest from {SourceRootCount} source roots to {OutputPath}.", sourceRoots.Count, outputPath);
+        _logger.LogInformation("Starting Tailwind manifest generation for project {ProjectDir} in {Mode} mode.", projectDir, mode);
 
-        await GenerateInlineManifest(sourceRoots, outputPath, cancellationToken)
+        await GenerateInlineManifest(projectDir, outputPath, mode, cancellationToken)
             .NoSync();
 
-        _logger.LogInformation("Completed Tailwind manifest generation for project {ProjectDir}.", projectDir);
+        _logger.LogInformation("Completed Tailwind manifest generation for project {ProjectDir} in {Mode} mode.", projectDir, mode);
         return 0;
     }
 
-    private async Task GenerateInlineManifest(HashSet<string> sourceRoots, string outputPath, CancellationToken cancellationToken)
+    private async Task GenerateInlineManifest(string sourceRoot, string outputPath, string mode, CancellationToken cancellationToken)
     {
+        if (!await _directoryUtil.Exists(sourceRoot, cancellationToken)
+                                 .NoSync())
+        {
+            _logger.LogWarning("Skipping missing source root {SourceRoot}.", sourceRoot);
+            return;
+        }
+
+        _logger.LogInformation("Scanning source root {SourceRoot} for Tailwind classes in {Mode} mode.", sourceRoot, mode);
+
         var uniqueLines = new HashSet<string>(StringComparer.Ordinal);
         var totalFilesScanned = 0;
         var runtimeBuilderClasses = 0;
         var tailwindPrefixClasses = 0;
         var componentCodeClasses = 0;
         var razorClasses = 0;
+        var fluentClasses = 0;
         var csSources = new List<(string File, string Text)>();
         var razorSources = new List<(string File, string Text)>();
         Dictionary<string, Type> runtimeRoots = CollectRuntimeFluentRoots();
+        bool suiteMode = IsSuiteMode(mode);
 
-        runtimeBuilderClasses += AddRuntimeBuilderManifestClasses(uniqueLines, runtimeRoots);
+        if (suiteMode)
+            runtimeBuilderClasses += AddRuntimeBuilderManifestClasses(uniqueLines, runtimeRoots);
 
-        foreach (string sourceRoot in sourceRoots)
+        List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken)
+                                                   .NoSync();
+
+        foreach (string file in csFiles)
         {
-            if (!await _directoryUtil.Exists(sourceRoot, cancellationToken)
-                                     .NoSync())
-            {
-                _logger.LogWarning("Skipping missing source root {SourceRoot}.", sourceRoot);
+            if (IsExcluded(file))
                 continue;
-            }
 
-            _logger.LogInformation("Scanning source root {SourceRoot} for Tailwind classes.", sourceRoot);
+            cancellationToken.ThrowIfCancellationRequested();
+            totalFilesScanned++;
 
-            List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken)
-                                                       .NoSync();
+            string? text = await TryReadFile(file, isRazor: false, cancellationToken)
+                .NoSync();
 
-            foreach (string file in csFiles)
-            {
-                if (IsExcluded(file))
-                    continue;
+            if (text is null)
+                continue;
 
-                cancellationToken.ThrowIfCancellationRequested();
-                totalFilesScanned++;
+            csSources.Add((file, text));
+        }
 
-                string? text = await TryReadFile(file, isRazor: false, cancellationToken)
-                    .NoSync();
+        List<string> razorFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".razor", recursive: true, cancellationToken)
+                                                      .NoSync();
 
-                if (text is null)
-                    continue;
+        foreach (string file in razorFiles)
+        {
+            if (IsExcluded(file))
+                continue;
 
-                csSources.Add((file, text));
-            }
+            cancellationToken.ThrowIfCancellationRequested();
+            totalFilesScanned++;
 
-            List<string> razorFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".razor", recursive: true, cancellationToken)
-                                                          .NoSync();
+            string? text = await TryReadFile(file, isRazor: true, cancellationToken)
+                .NoSync();
 
-            foreach (string file in razorFiles)
-            {
-                if (IsExcluded(file))
-                    continue;
+            if (text is null)
+                continue;
 
-                cancellationToken.ThrowIfCancellationRequested();
-                totalFilesScanned++;
-
-                string? text = await TryReadFile(file, isRazor: true, cancellationToken)
-                    .NoSync();
-
-                if (text is null)
-                    continue;
-
-                razorSources.Add((file, text));
-            }
+            razorSources.Add((file, text));
         }
 
         foreach ((string file, string text) in csSources)
         {
-            ProcessCsFile(file, text, uniqueLines, runtimeRoots, ref tailwindPrefixClasses, ref componentCodeClasses);
+            if (suiteMode)
+            {
+                ProcessCsFile(file, text, uniqueLines, runtimeRoots, ref tailwindPrefixClasses, ref componentCodeClasses);
+                continue;
+            }
+
+            AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref fluentClasses);
         }
 
         foreach ((string file, string text) in razorSources)
         {
-            ProcessRazorFile(file, text, uniqueLines, runtimeRoots, ref razorClasses);
+            if (suiteMode)
+            {
+                ProcessRazorFile(file, text, uniqueLines, runtimeRoots, ref razorClasses);
+                continue;
+            }
+
+            AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref fluentClasses);
         }
 
         var final = new List<string>(uniqueLines);
         final.Sort(StringComparer.Ordinal);
 
-        _logger.LogInformation(
-            "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names (RuntimeBuilders={RuntimeBuilderCount}, TailwindPrefix={TailwindPrefixCount}, ComponentCode={ComponentCodeCount}, Razor={RazorCount}), output {OutputPath}.",
-            totalFilesScanned, final.Count, runtimeBuilderClasses, tailwindPrefixClasses, componentCodeClasses, razorClasses, outputPath);
+        if (suiteMode)
+        {
+            _logger.LogInformation(
+                "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names (RuntimeBuilders={RuntimeBuilderCount}, TailwindPrefix={TailwindPrefixCount}, ComponentCode={ComponentCodeCount}, Razor={RazorCount}), output {OutputPath}.",
+                totalFilesScanned, final.Count, runtimeBuilderClasses, tailwindPrefixClasses, componentCodeClasses, razorClasses, outputPath);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names from fluent builder usage only, output {OutputPath}.",
+                totalFilesScanned, final.Count, outputPath);
+            _logger.LogInformation("Fluent builder-derived class entries added: {FluentClassCount}.", fluentClasses);
+        }
 
         if (final.Count > 0)
         {
@@ -245,7 +238,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         foreach (string line in final)
             sb.AppendLine(line);
 
-        _logger.LogInformation("Writing Tailwind inline manifest to {OutputPath}.", outputPath);
+        _logger.LogInformation("Writing Tailwind manifest to {OutputPath}.", outputPath);
         await _fileUtil.Write(outputPath, sb.ToStringAndDispose(), cancellationToken: cancellationToken)
                        .NoSync();
     }
@@ -1412,6 +1405,24 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     /// Valid first character for a Tailwind class token (letter, important, arbitrary, variant, etc.).
     /// </summary>
     private static readonly SearchValues<char> _validTailwindFirstChar = SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ![-:@");
+
+    private static string ResolveScanMode(Dictionary<string, string> map)
+    {
+        if (map.TryGetValue("--mode", out string? value) && string.Equals(value, _suiteMode, StringComparison.OrdinalIgnoreCase))
+            return _suiteMode;
+
+        return _projectMode;
+    }
+
+    private static bool IsSuiteMode(string mode)
+    {
+        return string.Equals(mode, _suiteMode, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetDefaultOutputFileName(string mode)
+    {
+        return IsSuiteMode(mode) ? _suiteManifestFileName : _projectManifestFileName;
+    }
 
     private static Dictionary<string, string> ParseArgs(string[] args)
     {

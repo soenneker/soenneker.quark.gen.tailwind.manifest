@@ -15,9 +15,8 @@
         <QuarkTailwindManifestGeneratorBuildEnabled Condition="'$(QuarkTailwindManifestGeneratorBuildEnabled)'==''">true</QuarkTailwindManifestGeneratorBuildEnabled>
         <_QuarkTailwindManifestProjectDir>$([System.IO.Path]::GetDirectoryName('$(ProjectDir)x'))</_QuarkTailwindManifestProjectDir>
         <_QuarkTailwindManifestProjectDir Condition="'$(_QuarkTailwindManifestProjectDir)' == ''">$(MSBuildProjectDirectory)</_QuarkTailwindManifestProjectDir>
-        <QuarkTailwindManifestOutput Condition="'$(QuarkTailwindManifestOutput)' == ''">$([System.IO.Path]::Combine('$(_QuarkTailwindManifestProjectDir)', 'tailwind', 'tw-inline.generated.txt'))</QuarkTailwindManifestOutput>
+        <QuarkTailwindManifestOutput Condition="'$(QuarkTailwindManifestOutput)' == ''">$([System.IO.Path]::Combine('$(_QuarkTailwindManifestProjectDir)', 'tailwind', 'quark-tailwind-manifest.txt'))</QuarkTailwindManifestOutput>
         <_QuarkTailwindManifestOutputArg Condition="'$(QuarkTailwindManifestOutput)' != ''"> --manifestOutput &quot;$(QuarkTailwindManifestOutput)&quot;</_QuarkTailwindManifestOutputArg>
-        <_QuarkTailwindManifestSourceDirsArg Condition="'$(QuarkTailwindManifestSourceDirs)' != ''"> --sourceDirs &quot;$(QuarkTailwindManifestSourceDirs)&quot;</_QuarkTailwindManifestSourceDirsArg>
     </PropertyGroup>
 
     <Target Name="RunQuarkTailwindManifestGeneratorBuildTasks"
@@ -37,6 +36,6 @@
               ConsoleToMSBuild="true"
               StandardOutputImportance="high"
               StandardErrorImportance="high"
-              Command='dotnet exec &quot;$(QuarkTailwindManifestBuildTasksDllPath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot;$(_QuarkTailwindManifestOutputArg)$(_QuarkTailwindManifestSourceDirsArg)' />
+              Command='dotnet exec &quot;$(QuarkTailwindManifestBuildTasksDllPath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot; --mode &quot;project&quot;$(_QuarkTailwindManifestOutputArg)' />
     </Target>
 </Project>

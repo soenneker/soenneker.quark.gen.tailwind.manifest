@@ -5,5 +5,5 @@ namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.Abstract;
 
 public interface IQuarkTailwindManifestGenerator
 {
-    ValueTask<int> Run(CancellationToken cancellationToken);
+    ValueTask<int> Run(string[] args, CancellationToken cancellationToken);
 }

@@ -35,7 +35,7 @@ public sealed class ConsoleHostedService : IHostedService
 
                 try
                 {
-                    _exitCode = await _runner.Run(cancellationToken).AsTask();
+                    _exitCode = await _runner.Run(_args.Args, cancellationToken).AsTask();
                 }
                 catch (Exception e)
                 {
