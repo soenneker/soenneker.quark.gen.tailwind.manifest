@@ -9,10 +9,12 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.Extensions.ValueTask;
+using Soenneker.Quark;
 
 namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
 
@@ -61,6 +63,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             return $"{Breakpoint}:{className}";
         }
     }
+
+    private const int _runtimeBuilderExpansionDepth = 2;
 
     [GeneratedRegex(
         @"\[(?<attr>[^\]]*TailwindPrefix[^\]]*)\]\s*(?:(?:public|internal|private|protected)\s+)?(?:sealed\s+)?class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b(?<after>[^{]*)\{",
@@ -127,6 +131,11 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         "absolute", "block", "container", "contents", "disabled", "dropend", "fixed", "flex", "grid", "group", "hidden", "inline",
         "italic", "outline", "peer", "preview", "relative", "ring", "shadow", "show", "sr-only", "static", "sticky", "truncate",
         "underline", "visible", "invisible"
+    };
+
+    private static readonly HashSet<string> IgnoredRuntimeClassTokens = new(StringComparer.Ordinal)
+    {
+        "xs", "sm", "md", "lg", "xl", "2xl"
     };
 
     private readonly ILogger<QuarkTailwindManifestGenerator> _logger;
@@ -205,11 +214,15 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     {
         var uniqueLines = new HashSet<string>(StringComparer.Ordinal);
         var totalFilesScanned = 0;
+        var runtimeBuilderClasses = 0;
         var tailwindPrefixClasses = 0;
         var componentCodeClasses = 0;
         var razorClasses = 0;
         var csSources = new List<(string File, string Text)>();
         var razorSources = new List<(string File, string Text)>();
+        Dictionary<string, Type> runtimeRoots = CollectRuntimeFluentRoots();
+
+        runtimeBuilderClasses += AddRuntimeBuilderManifestClasses(uniqueLines, runtimeRoots);
 
         foreach (string sourceRoot in sourceRoots)
         {
@@ -268,20 +281,20 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         foreach ((string file, string text) in csSources)
         {
-            ProcessCsFile(file, text, uniqueLines, tokenFacades, ref tailwindPrefixClasses, ref componentCodeClasses);
+            ProcessCsFile(file, text, uniqueLines, tokenFacades, runtimeRoots, ref tailwindPrefixClasses, ref componentCodeClasses);
         }
 
         foreach ((string file, string text) in razorSources)
         {
-            ProcessRazorFile(file, text, uniqueLines, tokenFacades, ref razorClasses);
+            ProcessRazorFile(file, text, uniqueLines, tokenFacades, runtimeRoots, ref razorClasses);
         }
 
         var final = new List<string>(uniqueLines);
         final.Sort(StringComparer.Ordinal);
 
         _logger.LogInformation(
-            "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names (TailwindPrefix={TailwindPrefixCount}, ComponentCode={ComponentCodeCount}, Razor={RazorCount}), output {OutputPath}.",
-            totalFilesScanned, final.Count, tailwindPrefixClasses, componentCodeClasses, razorClasses, outputPath);
+            "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names (RuntimeBuilders={RuntimeBuilderCount}, TailwindPrefix={TailwindPrefixCount}, ComponentCode={ComponentCodeCount}, Razor={RazorCount}), output {OutputPath}.",
+            totalFilesScanned, final.Count, runtimeBuilderClasses, tailwindPrefixClasses, componentCodeClasses, razorClasses, outputPath);
 
         if (final.Count > 0)
         {
@@ -317,6 +330,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     }
 
     private void ProcessCsFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, TailwindFacadeMetadata> tokenFacades,
+        Dictionary<string, Type> runtimeRoots,
         ref int tailwindPrefixClasses, ref int componentCodeClasses)
     {
         foreach (Match match in ClassWithAttrRegex()
@@ -370,10 +384,11 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             LogClasses("[TailwindPrefix]", file, classNames, added, prefix, responsive, className);
         }
 
-        AddFluentInvocationClasses(file, text, tokenFacades, uniqueLines, ref componentCodeClasses);
+        AddFluentInvocationClasses(file, text, tokenFacades, runtimeRoots, uniqueLines, ref componentCodeClasses);
     }
 
     private void ProcessRazorFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, TailwindFacadeMetadata> tokenFacades,
+        Dictionary<string, Type> runtimeRoots,
         ref int razorClasses)
     {
         var classNames = new HashSet<string>(StringComparer.Ordinal);
@@ -400,7 +415,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             LogClasses("[Razor]", file, classNames, added);
         }
 
-        AddFluentInvocationClasses(file, text, tokenFacades, uniqueLines, ref razorClasses);
+        AddFluentInvocationClasses(file, text, tokenFacades, runtimeRoots, uniqueLines, ref razorClasses);
     }
 
     private static Dictionary<string, TailwindBuilderMetadata> CollectBuilderMetadata(List<(string File, string Text)> csSources)
@@ -485,6 +500,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     }
 
     private void AddFluentInvocationClasses(string file, string text, Dictionary<string, TailwindFacadeMetadata> tokenFacades,
+        Dictionary<string, Type> runtimeRoots,
         HashSet<string> uniqueLines, ref int count)
     {
         var classNames = new HashSet<string>(StringComparer.Ordinal);
@@ -493,7 +509,11 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         {
             List<string>? classes = null;
 
-            if (tokenFacades.TryGetValue(root, out TailwindFacadeMetadata facade) &&
+            if (TryEvaluateRuntimeChain(runtimeRoots, root, segments, out List<string>? runtimeClasses, out _))
+            {
+                classes = runtimeClasses;
+            }
+            else if (tokenFacades.TryGetValue(root, out TailwindFacadeMetadata facade) &&
                 ShouldProcessFluentChain(facade, segments) &&
                 TryEvaluateChain(facade, segments, out List<string>? metadataClasses))
             {
@@ -517,6 +537,415 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         int added = AddManifestClasses(uniqueLines, classNames, responsive: false);
         count += added;
         LogClasses("[Fluent]", file, classNames, added);
+    }
+
+    private static Dictionary<string, Type> CollectRuntimeFluentRoots()
+    {
+        var result = new Dictionary<string, Type>(StringComparer.Ordinal);
+        Assembly assembly = typeof(ICssBuilder).Assembly;
+
+        foreach (Type type in assembly.GetExportedTypes())
+        {
+            if (!string.Equals(type.Namespace, "Soenneker.Quark", StringComparison.Ordinal) || type.IsNested)
+                continue;
+
+            result[type.Name] = type;
+        }
+
+        return result;
+    }
+
+    private static int AddRuntimeBuilderManifestClasses(HashSet<string> uniqueLines, Dictionary<string, Type> runtimeRoots)
+    {
+        var added = 0;
+
+        foreach ((string rootName, Type rootType) in runtimeRoots)
+        {
+            if (!IsStaticContainerType(rootType))
+                continue;
+
+            var rootChains = new List<List<ChainSegment>>();
+            CollectRuntimeRootChains(rootType, new List<ChainSegment>(), rootChains);
+
+            foreach (List<ChainSegment> rootChain in rootChains)
+            {
+                added += AddRuntimeChainClasses(uniqueLines, runtimeRoots, rootName, rootChain);
+
+                if (!TryEvaluateRuntimeChain(runtimeRoots, rootName, rootChain, out _, out Type? builderType) || builderType is null)
+                    continue;
+
+                List<ChainSegment> builderMembers = GetRuntimeBuilderSegments(builderType);
+                if (builderMembers.Count == 0)
+                    continue;
+
+                ExpandRuntimeBuilderChains(uniqueLines, runtimeRoots, rootName, rootChain, builderMembers, _runtimeBuilderExpansionDepth, ref added);
+            }
+        }
+
+        return added;
+    }
+
+    private static void ExpandRuntimeBuilderChains(HashSet<string> uniqueLines, Dictionary<string, Type> runtimeRoots, string rootName, List<ChainSegment> prefix,
+        List<ChainSegment> builderMembers, int remainingDepth, ref int added)
+    {
+        if (remainingDepth <= 0)
+            return;
+
+        foreach (ChainSegment member in builderMembers)
+        {
+            var next = new List<ChainSegment>(prefix.Count + 1);
+            next.AddRange(prefix);
+            next.Add(member);
+
+            added += AddRuntimeChainClasses(uniqueLines, runtimeRoots, rootName, next);
+            ExpandRuntimeBuilderChains(uniqueLines, runtimeRoots, rootName, next, builderMembers, remainingDepth - 1, ref added);
+        }
+    }
+
+    private static int AddRuntimeChainClasses(HashSet<string> uniqueLines, Dictionary<string, Type> runtimeRoots, string rootName, List<ChainSegment> segments)
+    {
+        if (!TryEvaluateRuntimeChain(runtimeRoots, rootName, segments, out List<string>? classes, out _))
+            return 0;
+
+        if (classes is null || classes.Count == 0)
+            return 0;
+
+        var set = new HashSet<string>(classes, StringComparer.Ordinal);
+        return AddManifestClasses(uniqueLines, set, responsive: false);
+    }
+
+    private static void CollectRuntimeRootChains(Type containerType, List<ChainSegment> prefix, List<List<ChainSegment>> results)
+    {
+        foreach (Type nestedType in containerType.GetNestedTypes(BindingFlags.Public))
+        {
+            if (!IsStaticContainerType(nestedType))
+                continue;
+
+            var nestedPrefix = new List<ChainSegment>(prefix.Count + 1);
+            nestedPrefix.AddRange(prefix);
+            nestedPrefix.Add(new ChainSegment(nestedType.Name, new List<string>()));
+            CollectRuntimeRootChains(nestedType, nestedPrefix, results);
+        }
+
+        foreach (PropertyInfo property in containerType.GetProperties(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (property.GetIndexParameters().Length != 0 || property.GetMethod is null || !typeof(ICssBuilder).IsAssignableFrom(property.PropertyType))
+                continue;
+
+            var chain = new List<ChainSegment>(prefix.Count + 1);
+            chain.AddRange(prefix);
+            chain.Add(new ChainSegment(property.Name, new List<string>()));
+            results.Add(chain);
+        }
+
+        foreach (MethodInfo method in containerType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (method.IsSpecialName || method.GetParameters().Length != 0 || !typeof(ICssBuilder).IsAssignableFrom(method.ReturnType))
+                continue;
+
+            var chain = new List<ChainSegment>(prefix.Count + 1);
+            chain.AddRange(prefix);
+            chain.Add(new ChainSegment(method.Name, new List<string>()));
+            results.Add(chain);
+        }
+    }
+
+    private static List<ChainSegment> GetRuntimeBuilderSegments(Type builderType)
+    {
+        var results = new List<ChainSegment>();
+
+        foreach (PropertyInfo property in builderType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (property.GetIndexParameters().Length != 0 || property.GetMethod is null || property.PropertyType != builderType)
+                continue;
+
+            results.Add(new ChainSegment(property.Name, new List<string>()));
+        }
+
+        foreach (MethodInfo method in builderType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (method.IsSpecialName || method.GetParameters().Length != 0 || method.ReturnType != builderType)
+                continue;
+
+            results.Add(new ChainSegment(method.Name, new List<string>()));
+        }
+
+        results.Sort(static (a, b) => string.CompareOrdinal(a.Name, b.Name));
+        return results;
+    }
+
+    private static bool TryEvaluateRuntimeChain(Dictionary<string, Type> runtimeRoots, string root, List<ChainSegment> segments, out List<string>? classes,
+        out Type? builderType)
+    {
+        classes = null;
+        builderType = null;
+
+        if (!TryEvaluateRuntimeChainObject(runtimeRoots, root, segments, out object? value) || value is not ICssBuilder builder)
+            return false;
+
+        builderType = builder.GetType();
+
+        string classValue = builder.ToClass();
+        classes = SplitClassList(classValue);
+        return classes.Count > 0;
+    }
+
+    private static bool TryEvaluateRuntimeChainObject(Dictionary<string, Type> runtimeRoots, string root, List<ChainSegment> segments, out object? value)
+    {
+        value = null;
+
+        if (!runtimeRoots.TryGetValue(root, out Type? rootType))
+            return false;
+
+        object current = rootType;
+
+        foreach (ChainSegment segment in segments)
+        {
+            if (current is Type staticType)
+            {
+                if (TryResolveStaticSegment(staticType, segment, out object? nextStatic))
+                {
+                    current = nextStatic!;
+                    continue;
+                }
+
+                return false;
+            }
+
+            Type instanceType = current.GetType();
+
+            if (TryResolveInstanceSegment(current, instanceType, segment, out object? nextInstance))
+            {
+                current = nextInstance!;
+                continue;
+            }
+
+            return false;
+        }
+
+        value = current;
+        return true;
+    }
+
+    private static bool TryResolveStaticSegment(Type type, ChainSegment segment, out object? value)
+    {
+        value = null;
+
+        if (segment.Args.Count == 0)
+        {
+            Type? nestedType = type.GetNestedType(segment.Name, BindingFlags.Public);
+
+            if (nestedType is not null)
+            {
+                value = nestedType;
+                return true;
+            }
+
+            PropertyInfo? property = type.GetProperty(segment.Name, BindingFlags.Public | BindingFlags.Static);
+
+            if (property?.GetMethod is not null)
+            {
+                value = property.GetValue(null);
+                return value is not null;
+            }
+        }
+
+        return TryInvokeMethod(null, type, segment, BindingFlags.Public | BindingFlags.Static, out value);
+    }
+
+    private static bool TryResolveInstanceSegment(object instance, Type type, ChainSegment segment, out object? value)
+    {
+        value = null;
+
+        if (segment.Args.Count == 0)
+        {
+            PropertyInfo? property = type.GetProperty(segment.Name, BindingFlags.Public | BindingFlags.Instance);
+
+            if (property?.GetMethod is not null)
+            {
+                value = property.GetValue(instance);
+                return value is not null;
+            }
+        }
+
+        return TryInvokeMethod(instance, type, segment, BindingFlags.Public | BindingFlags.Instance, out value);
+    }
+
+    private static bool TryInvokeMethod(object? instance, Type type, ChainSegment segment, BindingFlags bindingFlags, out object? value)
+    {
+        foreach (MethodInfo method in type.GetMethods(bindingFlags))
+        {
+            if (method.IsSpecialName || !string.Equals(method.Name, segment.Name, StringComparison.Ordinal))
+                continue;
+
+            ParameterInfo[] parameters = method.GetParameters();
+
+            if (parameters.Length != segment.Args.Count)
+                continue;
+
+            var args = new object?[parameters.Length];
+            var supported = true;
+
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                if (TryConvertRuntimeArgument(segment.Args[i], parameters[i].ParameterType, out object? converted))
+                {
+                    args[i] = converted;
+                    continue;
+                }
+
+                supported = false;
+                break;
+            }
+
+            if (!supported)
+                continue;
+
+            try
+            {
+                value = method.Invoke(instance, args);
+                return value is not null;
+            }
+            catch
+            {
+                // Ignore unsupported runtime paths and let fallback logic decide if it can handle the chain.
+            }
+        }
+
+        value = null;
+        return false;
+    }
+
+    private static bool TryConvertRuntimeArgument(string arg, Type parameterType, out object? value)
+    {
+        value = null;
+        Type targetType = Nullable.GetUnderlyingType(parameterType) ?? parameterType;
+
+        if (targetType == typeof(string))
+        {
+            value = ParseQuotedTokenLiteral(arg);
+            return value is not null;
+        }
+
+        if (TryResolveStaticMemberExpression(arg, targetType, out object? resolved))
+        {
+            value = resolved;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryResolveStaticMemberExpression(string expression, Type targetType, out object? value)
+    {
+        value = null;
+        expression = expression.Trim();
+
+        if (expression.Length == 0)
+            return false;
+
+        string[] parts = expression.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (parts.Length == 0)
+            return false;
+
+        Type? type = FindRuntimeType(parts[0], targetType.Assembly);
+
+        if (type is null)
+            return false;
+
+        object? current = null;
+        Type currentType = type;
+
+        for (var i = 1; i < parts.Length; i++)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.Static;
+
+            PropertyInfo? property = currentType.GetProperty(parts[i], flags);
+
+            if (property?.GetMethod is not null)
+            {
+                current = property.GetValue(null);
+
+                if (current is null)
+                    return false;
+
+                currentType = current.GetType();
+                continue;
+            }
+
+            FieldInfo? field = currentType.GetField(parts[i], flags);
+
+            if (field is not null)
+            {
+                current = field.GetValue(null);
+
+                if (current is null)
+                    return false;
+
+                currentType = current.GetType();
+                continue;
+            }
+
+            return false;
+        }
+
+        if (current is null)
+            return false;
+
+        if (!targetType.IsAssignableFrom(current.GetType()))
+            return false;
+
+        value = current;
+        return true;
+    }
+
+    private static Type? FindRuntimeType(string typeName, Assembly assembly)
+    {
+        foreach (Type type in assembly.GetExportedTypes())
+        {
+            if (string.Equals(type.Name, typeName, StringComparison.Ordinal))
+                return type;
+        }
+
+        return null;
+    }
+
+    private static List<string> SplitClassList(string classList)
+    {
+        var result = new List<string>();
+
+        if (classList.IsNullOrWhiteSpace())
+            return result;
+
+        ReadOnlySpan<char> span = classList.AsSpan();
+        var i = 0;
+
+        while (i < span.Length)
+        {
+            while (i < span.Length && char.IsWhiteSpace(span[i]))
+                i++;
+
+            int start = i;
+
+            while (i < span.Length && !char.IsWhiteSpace(span[i]))
+                i++;
+
+            if (i > start)
+            {
+                string value = span[start..i].ToString();
+
+                if (!IgnoredRuntimeClassTokens.Contains(value))
+                    result.Add(value);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsStaticContainerType(Type type)
+    {
+        return type.IsClass && type.IsAbstract && type.IsSealed;
     }
 
     private static bool ShouldProcessFluentChain(TailwindFacadeMetadata facade, List<ChainSegment> segments)
