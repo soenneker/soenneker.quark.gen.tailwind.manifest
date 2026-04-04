@@ -26,15 +26,11 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     private const string _tailwindDirName = "tailwind";
     private const string _projectManifestFileName = "quark-tailwind-manifest.txt";
     private const string _suiteManifestFileName = "quark-suite-tailwind-manifest.txt";
-    private const string _projectMode = "project";
-    private const string _suiteMode = "suite";
     private const string _suitePackageId = "soenneker.quark.suite";
 
     private static readonly string[] _responsivePrefixes = ["", "sm:", "md:", "lg:", "xl:", "2xl:"];
 
     private readonly record struct ChainSegment(string Name, List<string> Args);
-
-    private const int _runtimeBuilderExpansionDepth = 2;
 
     [GeneratedRegex(
         @"\[(?<attr>[^\]]*TailwindPrefix[^\]]*)\]\s*(?:(?:public|internal|private|protected)\s+)?(?:sealed\s+)?class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b(?<after>[^{]*)\{",
@@ -104,11 +100,9 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             return Fail("Missing required --projectDir");
 
         projectDir = NormalizeFullPath(projectDir);
-
-        string mode = ResolveScanMode(map);
         string outputPath = map.TryGetValue("--manifestOutput", out string? manifestOutput) && manifestOutput.HasContent()
             ? NormalizeFullPath(manifestOutput)
-            : Path.Combine(projectDir, "tailwind", GetDefaultOutputFileName(mode));
+            : Path.Combine(projectDir, "tailwind", _projectManifestFileName);
 
         string? outputDir = Path.GetDirectoryName(outputPath);
 
@@ -116,22 +110,19 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             await _directoryUtil.Create(outputDir, log: false, cancellationToken)
                                 .NoSync();
 
-        _logger.LogInformation("Starting Tailwind manifest generation for project {ProjectDir} in {Mode} mode.", projectDir, mode);
+        _logger.LogInformation("Starting project Tailwind manifest generation for project {ProjectDir}.", projectDir);
 
-        await GenerateInlineManifest(projectDir, outputPath, mode, cancellationToken)
+        await GenerateInlineManifest(projectDir, outputPath, cancellationToken)
             .NoSync();
 
-        if (!IsSuiteMode(mode))
-        {
-            await EnsureLocalSuiteManifest(projectDir, outputPath, cancellationToken)
-                .NoSync();
-        }
+        await EnsureLocalSuiteManifest(projectDir, outputPath, cancellationToken)
+            .NoSync();
 
-        _logger.LogInformation("Completed Tailwind manifest generation for project {ProjectDir} in {Mode} mode.", projectDir, mode);
+        _logger.LogInformation("Completed project Tailwind manifest generation for project {ProjectDir}.", projectDir);
         return 0;
     }
 
-    private async Task GenerateInlineManifest(string sourceRoot, string outputPath, string mode, CancellationToken cancellationToken)
+    private async Task GenerateInlineManifest(string sourceRoot, string outputPath, CancellationToken cancellationToken)
     {
         if (!await _directoryUtil.Exists(sourceRoot, cancellationToken)
                                  .NoSync())
@@ -140,22 +131,14 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             return;
         }
 
-        _logger.LogInformation("Scanning source root {SourceRoot} for Tailwind classes in {Mode} mode.", sourceRoot, mode);
+        _logger.LogInformation("Scanning source root {SourceRoot} for project Tailwind classes.", sourceRoot);
 
         var uniqueLines = new HashSet<string>(StringComparer.Ordinal);
         var totalFilesScanned = 0;
-        var runtimeBuilderClasses = 0;
-        var tailwindPrefixClasses = 0;
-        var componentCodeClasses = 0;
-        var razorClasses = 0;
         var fluentClasses = 0;
         var csSources = new List<(string File, string Text)>();
         var razorSources = new List<(string File, string Text)>();
         Dictionary<string, Type> runtimeRoots = CollectRuntimeFluentRoots();
-        bool suiteMode = IsSuiteMode(mode);
-
-        if (suiteMode)
-            runtimeBuilderClasses += AddRuntimeBuilderManifestClasses(uniqueLines, runtimeRoots);
 
         List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken)
                                                    .NoSync();
@@ -199,42 +182,21 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         foreach ((string file, string text) in csSources)
         {
-            if (suiteMode)
-            {
-                ProcessCsFile(file, text, uniqueLines, runtimeRoots, ref tailwindPrefixClasses, ref componentCodeClasses);
-                continue;
-            }
-
             AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref fluentClasses);
         }
 
         foreach ((string file, string text) in razorSources)
         {
-            if (suiteMode)
-            {
-                ProcessRazorFile(file, text, uniqueLines, runtimeRoots, ref razorClasses);
-                continue;
-            }
-
             AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref fluentClasses);
         }
 
         var final = new List<string>(uniqueLines);
         final.Sort(StringComparer.Ordinal);
 
-        if (suiteMode)
-        {
-            _logger.LogInformation(
-                "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names (RuntimeBuilders={RuntimeBuilderCount}, TailwindPrefix={TailwindPrefixCount}, ComponentCode={ComponentCodeCount}, Razor={RazorCount}), output {OutputPath}.",
-                totalFilesScanned, final.Count, runtimeBuilderClasses, tailwindPrefixClasses, componentCodeClasses, razorClasses, outputPath);
-        }
-        else
-        {
-            _logger.LogInformation(
-                "Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names from fluent builder usage only, output {OutputPath}.",
-                totalFilesScanned, final.Count, outputPath);
-            _logger.LogInformation("Fluent builder-derived class entries added: {FluentClassCount}.", fluentClasses);
-        }
+        _logger.LogInformation(
+            "Project Tailwind manifest scan complete: {FileCount} files scanned, {ClassCount} class names from fluent builder usage only, output {OutputPath}.",
+            totalFilesScanned, final.Count, outputPath);
+        _logger.LogInformation("Fluent builder-derived class entries added: {FluentClassCount}.", fluentClasses);
 
         if (final.Count > 0)
         {
@@ -470,93 +432,6 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
     }
 
-    private void ProcessCsFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, Type> runtimeRoots,
-        ref int tailwindPrefixClasses, ref int componentCodeClasses)
-    {
-        foreach (Match match in ClassWithAttrRegex()
-                     .Matches(text))
-        {
-            string attrBlob = match.Groups["attr"].Value;
-            Match attrMatch = TailwindPrefixArgsRegex()
-                .Match(attrBlob);
-
-            if (!attrMatch.Success)
-                continue;
-
-            string prefix = attrMatch.Groups["prefix"].Value;
-            bool responsive = !attrMatch.Groups["resp"].Success || !bool.TryParse(attrMatch.Groups["resp"].Value, out bool parsedResponsive) ||
-                              parsedResponsive;
-
-            string className = match.Groups["name"].Value;
-            int braceIdx = match.Index + match.Length - 1;
-            string? body = TryGetClassBody(text, braceIdx);
-
-            if (body is null)
-                continue;
-
-            var classNames = new HashSet<string>(StringComparer.Ordinal);
-
-            foreach (Match propMatch in ChainPropRegex()
-                         .Matches(body))
-            {
-                string typeName = propMatch.Groups["type"].Value;
-
-                if (!string.Equals(typeName, className, StringComparison.Ordinal))
-                    continue;
-
-                string prop = propMatch.Groups["prop"].Value;
-                string method = propMatch.Groups["method"].Value;
-                string argsText = propMatch.Groups["args"].Value;
-
-                List<string> argsList = SplitArguments(argsText);
-                string? classValue = ResolveClassName(prefix, method, argsList, prop);
-
-                if (classValue.HasContent())
-                    classNames.Add(classValue);
-            }
-
-            if (classNames.Count == 0)
-                continue;
-
-            int added = AddManifestClasses(uniqueLines, classNames, responsive);
-            tailwindPrefixClasses += added;
-
-            LogClasses("[TailwindPrefix]", file, classNames, added, prefix, responsive, className);
-        }
-
-        AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref componentCodeClasses);
-    }
-
-    private void ProcessRazorFile(string file, string text, HashSet<string> uniqueLines, Dictionary<string, Type> runtimeRoots,
-        ref int razorClasses)
-    {
-        var classNames = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (Match match in RazorClassAttributeRegex()
-                     .Matches(text))
-        {
-            AddClassTokens(classNames, match.Groups["classes"].Value);
-        }
-
-        foreach (Match match in AppendClassLiteralRegex()
-                     .Matches(text))
-        {
-            AddClassTokens(classNames, match.Groups["classes"].Value);
-        }
-
-        AddGeneralClassStrings(classNames, text);
-
-        if (classNames.Count > 0)
-        {
-            int added = AddManifestClasses(uniqueLines, classNames, responsive: false);
-            razorClasses += added;
-
-            LogClasses("[Razor]", file, classNames, added);
-        }
-
-        AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref razorClasses);
-    }
-
     private void AddFluentInvocationClasses(string file, string text, Dictionary<string, Type> runtimeRoots,
         HashSet<string> uniqueLines, ref int count)
     {
@@ -598,125 +473,6 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
 
         return result;
-    }
-
-    private static int AddRuntimeBuilderManifestClasses(HashSet<string> uniqueLines, Dictionary<string, Type> runtimeRoots)
-    {
-        var added = 0;
-
-        foreach ((string rootName, Type rootType) in runtimeRoots)
-        {
-            if (!IsStaticContainerType(rootType))
-                continue;
-
-            var rootChains = new List<List<ChainSegment>>();
-            CollectRuntimeRootChains(rootType, new List<ChainSegment>(), rootChains);
-
-            foreach (List<ChainSegment> rootChain in rootChains)
-            {
-                added += AddRuntimeChainClasses(uniqueLines, runtimeRoots, rootName, rootChain);
-
-                if (!TryEvaluateRuntimeChain(runtimeRoots, rootName, rootChain, out _, out Type? builderType) || builderType is null)
-                    continue;
-
-                List<ChainSegment> builderMembers = GetRuntimeBuilderSegments(builderType);
-                if (builderMembers.Count == 0)
-                    continue;
-
-                ExpandRuntimeBuilderChains(uniqueLines, runtimeRoots, rootName, rootChain, builderMembers, _runtimeBuilderExpansionDepth, ref added);
-            }
-        }
-
-        return added;
-    }
-
-    private static void ExpandRuntimeBuilderChains(HashSet<string> uniqueLines, Dictionary<string, Type> runtimeRoots, string rootName, List<ChainSegment> prefix,
-        List<ChainSegment> builderMembers, int remainingDepth, ref int added)
-    {
-        if (remainingDepth <= 0)
-            return;
-
-        foreach (ChainSegment member in builderMembers)
-        {
-            var next = new List<ChainSegment>(prefix.Count + 1);
-            next.AddRange(prefix);
-            next.Add(member);
-
-            added += AddRuntimeChainClasses(uniqueLines, runtimeRoots, rootName, next);
-            ExpandRuntimeBuilderChains(uniqueLines, runtimeRoots, rootName, next, builderMembers, remainingDepth - 1, ref added);
-        }
-    }
-
-    private static int AddRuntimeChainClasses(HashSet<string> uniqueLines, Dictionary<string, Type> runtimeRoots, string rootName, List<ChainSegment> segments)
-    {
-        if (!TryEvaluateRuntimeChain(runtimeRoots, rootName, segments, out List<string>? classes, out _))
-            return 0;
-
-        if (classes is null || classes.Count == 0)
-            return 0;
-
-        var set = new HashSet<string>(classes, StringComparer.Ordinal);
-        return AddManifestClasses(uniqueLines, set, responsive: false);
-    }
-
-    private static void CollectRuntimeRootChains(Type containerType, List<ChainSegment> prefix, List<List<ChainSegment>> results)
-    {
-        foreach (Type nestedType in containerType.GetNestedTypes(BindingFlags.Public))
-        {
-            if (!IsStaticContainerType(nestedType))
-                continue;
-
-            var nestedPrefix = new List<ChainSegment>(prefix.Count + 1);
-            nestedPrefix.AddRange(prefix);
-            nestedPrefix.Add(new ChainSegment(nestedType.Name, new List<string>()));
-            CollectRuntimeRootChains(nestedType, nestedPrefix, results);
-        }
-
-        foreach (PropertyInfo property in containerType.GetProperties(BindingFlags.Public | BindingFlags.Static))
-        {
-            if (property.GetIndexParameters().Length != 0 || property.GetMethod is null || !typeof(ICssBuilder).IsAssignableFrom(property.PropertyType))
-                continue;
-
-            var chain = new List<ChainSegment>(prefix.Count + 1);
-            chain.AddRange(prefix);
-            chain.Add(new ChainSegment(property.Name, new List<string>()));
-            results.Add(chain);
-        }
-
-        foreach (MethodInfo method in containerType.GetMethods(BindingFlags.Public | BindingFlags.Static))
-        {
-            if (method.IsSpecialName || method.GetParameters().Length != 0 || !typeof(ICssBuilder).IsAssignableFrom(method.ReturnType))
-                continue;
-
-            var chain = new List<ChainSegment>(prefix.Count + 1);
-            chain.AddRange(prefix);
-            chain.Add(new ChainSegment(method.Name, new List<string>()));
-            results.Add(chain);
-        }
-    }
-
-    private static List<ChainSegment> GetRuntimeBuilderSegments(Type builderType)
-    {
-        var results = new List<ChainSegment>();
-
-        foreach (PropertyInfo property in builderType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-        {
-            if (property.GetIndexParameters().Length != 0 || property.GetMethod is null || property.PropertyType != builderType)
-                continue;
-
-            results.Add(new ChainSegment(property.Name, new List<string>()));
-        }
-
-        foreach (MethodInfo method in builderType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-        {
-            if (method.IsSpecialName || method.GetParameters().Length != 0 || method.ReturnType != builderType)
-                continue;
-
-            results.Add(new ChainSegment(method.Name, new List<string>()));
-        }
-
-        results.Sort(static (a, b) => string.CompareOrdinal(a.Name, b.Name));
-        return results;
     }
 
     private static bool TryEvaluateRuntimeChain(Dictionary<string, Type> runtimeRoots, string root, List<ChainSegment> segments, out List<string>? classes,
@@ -986,11 +742,6 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
 
         return result;
-    }
-
-    private static bool IsStaticContainerType(Type type)
-    {
-        return type.IsClass && type.IsAbstract && type.IsSealed;
     }
 
     private static IEnumerable<(string Root, List<ChainSegment> Segments)> EnumerateFluentChains(string text)
@@ -1617,24 +1368,6 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     /// Valid first character for a Tailwind class token (letter, important, arbitrary, variant, etc.).
     /// </summary>
     private static readonly SearchValues<char> _validTailwindFirstChar = SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ![-:@");
-
-    private static string ResolveScanMode(Dictionary<string, string> map)
-    {
-        if (map.TryGetValue("--mode", out string? value) && string.Equals(value, _suiteMode, StringComparison.OrdinalIgnoreCase))
-            return _suiteMode;
-
-        return _projectMode;
-    }
-
-    private static bool IsSuiteMode(string mode)
-    {
-        return string.Equals(mode, _suiteMode, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string GetDefaultOutputFileName(string mode)
-    {
-        return IsSuiteMode(mode) ? _suiteManifestFileName : _projectManifestFileName;
-    }
 
     private static Dictionary<string, string> ParseArgs(string[] args)
     {

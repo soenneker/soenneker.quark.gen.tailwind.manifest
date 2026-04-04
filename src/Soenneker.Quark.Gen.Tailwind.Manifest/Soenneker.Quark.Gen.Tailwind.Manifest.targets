@@ -36,6 +36,6 @@
               ConsoleToMSBuild="true"
               StandardOutputImportance="high"
               StandardErrorImportance="high"
-              Command='dotnet exec &quot;$(QuarkTailwindManifestBuildTasksDllPath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot; --mode &quot;project&quot;$(_QuarkTailwindManifestOutputArg)' />
+              Command='dotnet exec &quot;$(QuarkTailwindManifestBuildTasksDllPath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot;$(_QuarkTailwindManifestOutputArg)' />
     </Target>
 </Project>
