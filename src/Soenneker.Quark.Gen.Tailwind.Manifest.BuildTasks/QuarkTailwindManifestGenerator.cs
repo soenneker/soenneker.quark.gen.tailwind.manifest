@@ -10,9 +10,12 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Soenneker.Extensions.ValueTask;
 
 namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
@@ -20,10 +23,12 @@ namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
 /// <inheritdoc cref="IQuarkTailwindManifestGenerator"/>
 public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGenerator
 {
+    private const string _tailwindDirName = "tailwind";
     private const string _projectManifestFileName = "quark-tailwind-manifest.txt";
     private const string _suiteManifestFileName = "quark-suite-tailwind-manifest.txt";
     private const string _projectMode = "project";
     private const string _suiteMode = "suite";
+    private const string _suitePackageId = "soenneker.quark.suite";
 
     private static readonly string[] _responsivePrefixes = ["", "sm:", "md:", "lg:", "xl:", "2xl:"];
 
@@ -115,6 +120,12 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         await GenerateInlineManifest(projectDir, outputPath, mode, cancellationToken)
             .NoSync();
+
+        if (!IsSuiteMode(mode))
+        {
+            await EnsureLocalSuiteManifest(projectDir, outputPath, cancellationToken)
+                .NoSync();
+        }
 
         _logger.LogInformation("Completed Tailwind manifest generation for project {ProjectDir} in {Mode} mode.", projectDir, mode);
         return 0;
@@ -241,6 +252,207 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         _logger.LogInformation("Writing Tailwind manifest to {OutputPath}.", outputPath);
         await _fileUtil.Write(outputPath, sb.ToStringAndDispose(), cancellationToken: cancellationToken)
                        .NoSync();
+    }
+
+    private async Task EnsureLocalSuiteManifest(string projectDir, string outputPath, CancellationToken cancellationToken)
+    {
+        string? outputDir = Path.GetDirectoryName(outputPath);
+
+        if (!outputDir.HasContent())
+            return;
+
+        string localSuiteManifestPath = Path.Combine(outputDir, _suiteManifestFileName);
+        string? suiteManifestPath = await ResolveSuiteManifestPath(projectDir, cancellationToken)
+            .NoSync();
+
+        if (suiteManifestPath.HasContent())
+        {
+            suiteManifestPath = NormalizeFullPath(suiteManifestPath);
+
+            if (string.Equals(suiteManifestPath, NormalizeFullPath(localSuiteManifestPath), StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("Local suite Tailwind manifest already available at {ManifestPath}.", localSuiteManifestPath);
+                return;
+            }
+
+            if (await _fileUtil.Exists(suiteManifestPath, cancellationToken)
+                              .NoSync())
+            {
+                string contents = await _fileUtil.Read(suiteManifestPath, log: false, cancellationToken)
+                                                 .NoSync();
+
+                await _fileUtil.Write(localSuiteManifestPath, contents, log: false, cancellationToken: cancellationToken)
+                               .NoSync();
+
+                _logger.LogInformation("Copied suite Tailwind manifest from {SourcePath} to {DestinationPath}.", suiteManifestPath,
+                    localSuiteManifestPath);
+                return;
+            }
+        }
+
+        if (await _fileUtil.Exists(localSuiteManifestPath, cancellationToken)
+                          .NoSync())
+        {
+            return;
+        }
+
+        await _fileUtil.Write(localSuiteManifestPath,
+                              "# No upstream Soenneker.Quark.Suite Tailwind manifest was resolved for this project." + Environment.NewLine,
+                              log: false, cancellationToken: cancellationToken)
+                       .NoSync();
+
+        _logger.LogInformation("Created placeholder suite Tailwind manifest at {ManifestPath}.", localSuiteManifestPath);
+    }
+
+    private async Task<string?> ResolveSuiteManifestPath(string projectDir, CancellationToken cancellationToken)
+    {
+        string? projectReferenceManifest = await TryResolveSuiteManifestFromProjectReferences(projectDir, cancellationToken)
+            .NoSync();
+
+        if (projectReferenceManifest.HasContent())
+            return projectReferenceManifest;
+
+        return await TryResolveSuiteManifestFromPackages(projectDir, cancellationToken)
+            .NoSync();
+    }
+
+    private async Task<string?> TryResolveSuiteManifestFromProjectReferences(string projectDir, CancellationToken cancellationToken)
+    {
+        string? projectFilePath = GetProjectFilePath(projectDir);
+
+        if (projectFilePath.IsNullOrWhiteSpace())
+            return null;
+
+        XDocument document;
+
+        try
+        {
+            string xml = await _fileUtil.Read(projectFilePath, log: false, cancellationToken)
+                                        .NoSync();
+            document = XDocument.Parse(xml, LoadOptions.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex, "Failed to inspect project references for {ProjectDir}", projectDir);
+            return null;
+        }
+
+        IEnumerable<string?> includes = document.Descendants()
+                                                .Where(element => element.Name.LocalName == "ProjectReference")
+                                                .Select(element => element.Attribute("Include")?.Value);
+
+        foreach (string? include in includes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (include.IsNullOrWhiteSpace())
+                continue;
+
+            string referencePath = NormalizeFullPath(Path.Combine(projectDir, include));
+            string? referenceDirectory = Path.GetDirectoryName(referencePath);
+
+            if (referenceDirectory.IsNullOrWhiteSpace())
+                continue;
+
+            string manifestPath = Path.Combine(referenceDirectory, _tailwindDirName, _suiteManifestFileName);
+
+            if (await _fileUtil.Exists(manifestPath, cancellationToken)
+                              .NoSync())
+            {
+                return manifestPath;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<string?> TryResolveSuiteManifestFromPackages(string projectDir, CancellationToken cancellationToken)
+    {
+        string assetsPath = Path.Combine(projectDir, "obj", "project.assets.json");
+
+        if (!await _fileUtil.Exists(assetsPath, cancellationToken)
+                          .NoSync())
+        {
+            return null;
+        }
+
+        try
+        {
+            string assetsJson = await _fileUtil.Read(assetsPath, log: false, cancellationToken)
+                                               .NoSync();
+
+            using JsonDocument document = JsonDocument.Parse(assetsJson);
+
+            if (!document.RootElement.TryGetProperty("libraries", out JsonElement libraries) ||
+                !document.RootElement.TryGetProperty("packageFolders", out JsonElement packageFolders))
+            {
+                return null;
+            }
+
+            string[] suiteLibraries = libraries.EnumerateObject()
+                                             .Select(property => property.Name)
+                                             .Where(name => name.StartsWith(_suitePackageId + "/", StringComparison.OrdinalIgnoreCase))
+                                             .ToArray();
+
+            if (suiteLibraries.Length == 0)
+                return null;
+
+            string[] folders = packageFolders.EnumerateObject()
+                                             .Select(property => property.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                                             .ToArray();
+
+            foreach (string library in suiteLibraries)
+            {
+                int separatorIndex = library.IndexOf('/');
+
+                if (separatorIndex < 0 || separatorIndex == library.Length - 1)
+                    continue;
+
+                string version = library.Substring(separatorIndex + 1);
+
+                foreach (string folder in folders)
+                {
+                    string packageManifestPath = Path.Combine(folder, _suitePackageId, version, _tailwindDirName, _suiteManifestFileName);
+
+                    if (await _fileUtil.Exists(packageManifestPath, cancellationToken)
+                                      .NoSync())
+                    {
+                        return packageManifestPath;
+                    }
+
+                    string contentFilesManifestPath = Path.Combine(folder, _suitePackageId, version, "contentFiles", "any", "any", _tailwindDirName,
+                        _suiteManifestFileName);
+
+                    if (await _fileUtil.Exists(contentFilesManifestPath, cancellationToken)
+                                      .NoSync())
+                    {
+                        return contentFilesManifestPath;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(ex, "Failed to inspect package assets for {ProjectDir}", projectDir);
+        }
+
+        return null;
+    }
+
+    private static string? GetProjectFilePath(string projectDir)
+    {
+        string[] projectFiles = Directory.GetFiles(projectDir, "*.csproj", SearchOption.TopDirectoryOnly);
+
+        if (projectFiles.Length == 0)
+            return null;
+
+        if (projectFiles.Length == 1)
+            return projectFiles[0];
+
+        string directoryName = Path.GetFileName(projectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+        return projectFiles.FirstOrDefault(path => string.Equals(Path.GetFileNameWithoutExtension(path), directoryName, StringComparison.OrdinalIgnoreCase))
+               ?? projectFiles[0];
     }
 
     private async ValueTask<string?> TryReadFile(string file, bool isRazor, CancellationToken cancellationToken)
