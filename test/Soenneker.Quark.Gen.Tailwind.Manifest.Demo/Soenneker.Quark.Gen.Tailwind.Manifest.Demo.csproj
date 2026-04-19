@@ -10,7 +10,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.6" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.6" PrivateAssets="all" />
-    <PackageReference Include="Soenneker.Quark.Builders" Version="4.0.10" />
+    <PackageReference Include="Soenneker.Quark.Builders" Version="4.0.17" />
   </ItemGroup>
 
   <ItemGroup>
