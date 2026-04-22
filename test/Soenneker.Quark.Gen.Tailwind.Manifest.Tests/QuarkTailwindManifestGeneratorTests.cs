@@ -4,13 +4,12 @@ using Soenneker.Tests.Unit;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using Xunit;
 
 namespace Soenneker.Quark.Gen.Tailwind.Manifest.Tests;
 
 public sealed class QuarkTailwindManifestGeneratorTests : UnitTest
 {
-    [Fact]
+    [Test]
     public void AddGeneralClassStrings_keeps_arbitrary_variant_tokens_with_parentheses_from_concatenated_literals()
     {
         MethodInfo method = typeof(QuarkTailwindManifestGenerator).GetMethod("AddGeneralClassStrings", BindingFlags.NonPublic | BindingFlags.Static)!;
