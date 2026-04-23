@@ -10,9 +10,9 @@ public static class Startup
 {
     public static void ConfigureServices(IServiceCollection services)
     {
-        services.AddFileUtilAsScoped()
-                .AddDirectoryUtilAsScoped();
-        services.TryAddScoped<IQuarkTailwindManifestGenerator, QuarkTailwindManifestGenerator>();
+        services.AddFileUtilAsSingleton()
+                .AddDirectoryUtilAsSingleton();
+        services.TryAddSingleton<IQuarkTailwindManifestGenerator, QuarkTailwindManifestGenerator>();
         services.AddHostedService<ConsoleHostedService>();
     }
 }
