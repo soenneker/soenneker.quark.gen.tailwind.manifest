@@ -2,11 +2,9 @@
 # Do not edit manually. Class names for Tailwind @source to scan.
 bg-card
 bg-primary
-bg-primary/10
 bg-secondary
-border-1
+border
 border-border
-border-primary/30
 flex
 font-medium
 font-semibold
@@ -16,14 +14,13 @@ h-10
 h-2
 h-4
 inline-flex
-items-center
-items-start
-justify-between
 max-w-[200px]
 max-w-[48rem]
 p-2
 p-4
 p-6
+primary/10
+primary/30
 px-3
 py-1
 py-2
