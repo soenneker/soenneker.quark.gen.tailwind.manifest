@@ -30,6 +30,24 @@ public sealed class QuarkTailwindManifestGeneratorTests : UnitTest
     }
 
     [Test]
+    public void AddGeneralClassStrings_keeps_decimal_tailwind_utilities()
+    {
+        MethodInfo method = typeof(QuarkTailwindManifestGenerator).GetMethod("AddGeneralClassStrings", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var result = new HashSet<string>(StringComparer.Ordinal);
+
+        const string source = """
+                              Padding ??= "pt-0 pb-2.5";
+                              Margin ??= "my-1.5";
+                              """;
+
+        method.Invoke(null, [result, source]);
+
+        result.Should().Contain("pt-0");
+        result.Should().Contain("pb-2.5");
+        result.Should().Contain("my-1.5");
+    }
+
+    [Test]
     public void TryEvaluateRuntimeChain_handles_quark_qualified_fluent_roots()
     {
         List<string> classes = EvaluateClasses(("TextSize", []), ("Sm", []));
