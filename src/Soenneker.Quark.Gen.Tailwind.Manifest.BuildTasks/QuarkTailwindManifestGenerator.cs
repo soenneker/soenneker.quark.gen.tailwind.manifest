@@ -495,13 +495,15 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     {
         value = null;
 
-        if (!runtimeRoots.TryGetValue(root, out Type? rootType))
+        if (!TryResolveRuntimeRoot(runtimeRoots, root, segments, out Type? rootType, out int segmentStart))
             return false;
 
         object current = rootType;
 
-        foreach (ChainSegment segment in segments)
+        for (int i = segmentStart; i < segments.Count; i++)
         {
+            ChainSegment segment = segments[i];
+
             if (current is Type staticType)
             {
                 if (TryResolveStaticSegment(staticType, segment, out object? nextStatic))
@@ -526,6 +528,37 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         value = current;
         return true;
+    }
+
+    private static bool TryResolveRuntimeRoot(Dictionary<string, Type> runtimeRoots, string root, List<ChainSegment> segments, out Type rootType, out int segmentStart)
+    {
+        if (runtimeRoots.TryGetValue(root, out Type? directRootType))
+        {
+            rootType = directRootType;
+            segmentStart = 0;
+            return true;
+        }
+
+        if (string.Equals(root, "Quark", StringComparison.Ordinal) && segments.Count > 1 && segments[0].Args.Count == 0 &&
+            runtimeRoots.TryGetValue(segments[0].Name, out Type? quarkRootType))
+        {
+            rootType = quarkRootType;
+            segmentStart = 1;
+            return true;
+        }
+
+        if (string.Equals(root, "Soenneker", StringComparison.Ordinal) && segments.Count > 2 && segments[0].Args.Count == 0 &&
+            string.Equals(segments[0].Name, "Quark", StringComparison.Ordinal) && segments[1].Args.Count == 0 &&
+            runtimeRoots.TryGetValue(segments[1].Name, out Type? namespaceQualifiedRootType))
+        {
+            rootType = namespaceQualifiedRootType;
+            segmentStart = 2;
+            return true;
+        }
+
+        rootType = null!;
+        segmentStart = 0;
+        return false;
     }
 
     private static bool TryResolveStaticSegment(Type type, ChainSegment segment, out object? value)
@@ -650,7 +683,22 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (parts.Length == 0)
             return false;
 
-        Type? type = FindRuntimeType(parts[0], targetType.Assembly);
+        int startIndex = 1;
+        string typeName = parts[0];
+
+        if (string.Equals(typeName, "Quark", StringComparison.Ordinal) && parts.Length > 1)
+        {
+            typeName = parts[1];
+            startIndex = 2;
+        }
+        else if (string.Equals(typeName, "Soenneker", StringComparison.Ordinal) && parts.Length > 2 &&
+                 string.Equals(parts[1], "Quark", StringComparison.Ordinal))
+        {
+            typeName = parts[2];
+            startIndex = 3;
+        }
+
+        Type? type = FindRuntimeType(typeName, targetType.Assembly);
 
         if (type is null)
             return false;
@@ -658,7 +706,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         object? current = null;
         Type currentType = type;
 
-        for (var i = 1; i < parts.Length; i++)
+        for (int i = startIndex; i < parts.Length; i++)
         {
             const BindingFlags flags = BindingFlags.Public | BindingFlags.Static;
 

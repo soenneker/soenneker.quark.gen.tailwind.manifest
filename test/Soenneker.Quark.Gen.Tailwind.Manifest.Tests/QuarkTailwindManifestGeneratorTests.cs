@@ -2,6 +2,7 @@ using AwesomeAssertions;
 using Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
 using Soenneker.Tests.Unit;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 
@@ -26,5 +27,65 @@ public sealed class QuarkTailwindManifestGeneratorTests : UnitTest
         result.Should().Contain("[&>*:not(:first-child)]:rounded-l-none");
         result.Should().Contain("[&>*:not(:first-child)]:border-l-0");
         result.Should().Contain("[&>*:not(:last-child)]:rounded-r-none");
+    }
+
+    [Test]
+    public void TryEvaluateRuntimeChain_handles_quark_qualified_fluent_roots()
+    {
+        List<string> classes = EvaluateClasses(("TextSize", []), ("Sm", []));
+
+        classes.Should().Contain("text-sm");
+    }
+
+    [Test]
+    public void TryEvaluateRuntimeChain_handles_quark_qualified_nested_fluent_roots()
+    {
+        List<string> classes = EvaluateClasses(("Rounded", []), ("Top", []), ("Xl", []));
+
+        classes.Should().Contain("rounded-t-xl");
+    }
+
+    [Test]
+    public void TryEvaluateRuntimeChain_handles_namespace_qualified_fluent_roots()
+    {
+        List<string> classes = EvaluateClasses("Soenneker", ("Quark", []), ("TextSize", []), ("Sm", []));
+
+        classes.Should().Contain("text-sm");
+    }
+
+    private static List<string> EvaluateClasses(params (string Name, string[] Args)[] segments)
+    {
+        return EvaluateClasses("Quark", segments);
+    }
+
+    private static List<string> EvaluateClasses(string root, params (string Name, string[] Args)[] segments)
+    {
+        Type generatorType = typeof(QuarkTailwindManifestGenerator);
+        MethodInfo rootsMethod = generatorType.GetMethod("CollectRuntimeFluentRoots", BindingFlags.NonPublic | BindingFlags.Static)!;
+        object roots = rootsMethod.Invoke(null, [])!;
+
+        object segmentList = BuildSegmentList(generatorType, segments);
+        MethodInfo evaluateMethod = generatorType.GetMethod("TryEvaluateRuntimeChain", BindingFlags.NonPublic | BindingFlags.Static)!;
+        object?[] args = [roots, root, segmentList, null, null];
+
+        bool result = (bool) evaluateMethod.Invoke(null, args)!;
+
+        result.Should().BeTrue();
+        return (List<string>) args[3]!;
+    }
+
+    private static object BuildSegmentList(Type generatorType, params (string Name, string[] Args)[] segments)
+    {
+        Type segmentType = generatorType.GetNestedType("ChainSegment", BindingFlags.NonPublic)!;
+        Type listType = typeof(List<>).MakeGenericType(segmentType);
+        var list = (IList) Activator.CreateInstance(listType)!;
+
+        foreach ((string name, string[] args) in segments)
+        {
+            object segment = Activator.CreateInstance(segmentType, name, new List<string>(args))!;
+            list.Add(segment);
+        }
+
+        return list;
     }
 }
