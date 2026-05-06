@@ -71,6 +71,14 @@ public sealed class QuarkTailwindManifestGeneratorTests : UnitTest
         classes.Should().Contain("text-sm");
     }
 
+    [Test]
+    public void TryEvaluateRuntimeChain_handles_arbitrary_token_values_with_parentheses()
+    {
+        List<string> classes = EvaluateClasses(("Top", []), ("Token", ["\"[calc(var(--header-height)+1rem)]\""]));
+
+        classes.Should().Contain("top-[calc(var(--header-height)+1rem)]");
+    }
+
     private static List<string> EvaluateClasses(params (string Name, string[] Args)[] segments)
     {
         return EvaluateClasses("Quark", segments);
