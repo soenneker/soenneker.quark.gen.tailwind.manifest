@@ -575,7 +575,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 return true;
             }
 
-            PropertyInfo? property = type.GetProperty(segment.Name, BindingFlags.Public | BindingFlags.Static);
+            PropertyInfo? property = GetNearestProperty(type, segment.Name, BindingFlags.Public | BindingFlags.Static);
 
             if (property?.GetMethod is not null)
             {
@@ -593,7 +593,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         if (segment.Args.Count == 0)
         {
-            PropertyInfo? property = type.GetProperty(segment.Name, BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo? property = GetNearestProperty(type, segment.Name, BindingFlags.Public | BindingFlags.Instance);
 
             if (property?.GetMethod is not null)
             {
@@ -648,6 +648,22 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         value = null;
         return false;
+    }
+
+    private static PropertyInfo? GetNearestProperty(Type type, string name, BindingFlags bindingFlags)
+    {
+        bool isStatic = (bindingFlags & BindingFlags.Static) != 0;
+
+        for (Type? currentType = type; currentType is not null; currentType = currentType.BaseType)
+        {
+            PropertyInfo? property = currentType.GetProperty(name,
+                bindingFlags | BindingFlags.DeclaredOnly | (isStatic ? BindingFlags.FlattenHierarchy : 0));
+
+            if (property is not null)
+                return property;
+        }
+
+        return null;
     }
 
     private static bool TryConvertRuntimeArgument(string arg, Type parameterType, out object? value)

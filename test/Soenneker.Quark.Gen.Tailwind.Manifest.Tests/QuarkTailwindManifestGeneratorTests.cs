@@ -79,6 +79,14 @@ public sealed class QuarkTailwindManifestGeneratorTests : UnitTest
         classes.Should().Contain("top-[calc(var(--header-height)+1rem)]");
     }
 
+    [Test]
+    public void TryEvaluateRuntimeChain_handles_hidden_builder_variant_properties()
+    {
+        List<string> classes = EvaluateClasses(("TextSize", []), ("OnFocusVisible", []), ("Sm", []));
+
+        classes.Should().Contain("focus-visible:text-sm");
+    }
+
     private static List<string> EvaluateClasses(params (string Name, string[] Args)[] segments)
     {
         return EvaluateClasses("Quark", segments);
