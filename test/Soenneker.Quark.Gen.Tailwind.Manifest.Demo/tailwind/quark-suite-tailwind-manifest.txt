@@ -99,6 +99,7 @@
 -80px
 -bottom-1
 -bottom-12
+-left-1
 -left-12
 -mb-2
 -mb-4
@@ -111,8 +112,10 @@
 -mx-1
 -mx-4
 -my-2
+-right-1
 -right-12
 -space-x-2
+-top-1
 -top-12
 -translate-x-1/2
 -translate-x-px
@@ -155,6 +158,7 @@ ContentAttributes
 Copied!
 Copy
 CopyCode
+CopyText
 DecrementHour
 DecrementMinute
 Dez
@@ -321,6 +325,7 @@ Number
 Okt
 Oktober
 On
+OnCloseClick
 OnHourInput
 OnHourKeyDown
 OnHourWheel
@@ -419,6 +424,7 @@ Theme
 This
 Thought
 Timeline
+TitleBarAttributes
 Toggle
 ToggleAmPm
 ToggleClicked
@@ -436,6 +442,7 @@ Validations
 Value
 View
 Week
+Window
 Year
 [&+[data-slot=item-content]]:flex-none
 [&::-webkit-inner-spin-button]:appearance-none
@@ -513,8 +520,6 @@ Year
 [.border-b]:pb-2
 [.border-b]:pb-4
 [.border-t]:pt-2
-[CanvasText]
-[Canvas]
 [[data-side=left][data-collapsible=offcanvas]_&]:-right-2
 [[data-side=left][data-state=collapsed]_&]:cursor-e-resize
 [[data-side=right][data-collapsible=offcanvas]_&]:-left-2
@@ -643,10 +648,8 @@ aria-disabled:opacity-50
 aria-disabled:pointer-events-none
 aria-expanded
 aria-expanded:bg-muted
-aria-expanded:bg-secondary
 aria-expanded:opacity-100
 aria-expanded:text-foreground
-aria-expanded:text-secondary-foreground
 aria-haspopup
 aria-hidden
 aria-invalid
@@ -659,6 +662,7 @@ aria-invalid:ring-destructive/20
 aria-keyshortcuts
 aria-label
 aria-labelledby
+aria-modal
 aria-multiselectable
 aria-orientation
 aria-posinset
@@ -690,7 +694,6 @@ attachment-remove
 attachments
 attachments-empty
 attr
-attrSb
 attrs
 audio
 auto
@@ -715,13 +718,16 @@ basis-
 basis-full
 best
 bg-
+bg-[Canvas]
 bg-accent
 bg-background
 bg-background/70
 bg-background/90
+bg-background/95
 bg-black/10
 bg-border
 bg-border/40
+bg-border/90
 bg-card
 bg-clip-padding
 bg-clip-text
@@ -737,6 +743,7 @@ bg-linear-to-t
 bg-muted
 bg-muted/25
 bg-muted/50
+bg-muted/55
 bg-popover
 bg-primary
 bg-primary-foreground
@@ -763,6 +770,7 @@ border-border
 border-current
 border-dashed
 border-destructive
+border-destructive/30
 border-dotted
 border-input
 border-input/30
@@ -783,8 +791,10 @@ border/90
 border:
 bottom
 bottom-0
+bottom-2
 bottom-6
 bounds
+box-border
 br
 breadcrumb
 breadcrumb-ellipsis
@@ -847,7 +857,6 @@ class
 claude-3.5
 claude-opus-4.1
 closed
-cls
 cmdk-group
 cmdk-input-wrapper
 cmdk-item
@@ -934,8 +943,12 @@ csharp
 currency-input
 currentColor
 cursor-default
+cursor-ew-resize
 cursor-grab
+cursor-nesw-resize
 cursor-not-allowed
+cursor-ns-resize
+cursor-nwse-resize
 cursor-pointer
 cursor-text
 cursor-zoom-in
@@ -954,7 +967,6 @@ dark:bg-transparent
 dark:border-accent
 dark:border-border/50
 dark:border-destructive/50
-dark:border-input
 dark:border-muted
 dark:data-[active=true]:aria-invalid:ring-destructive/40
 dark:data-[variant=destructive]:focus:bg-destructive/20
@@ -981,7 +993,6 @@ dark:has-data-checked:bg-primary/10
 dark:has-data-checked:border-primary/20
 dark:has-disabled:bg-input/80
 dark:hover:bg-accent/50
-dark:hover:bg-destructive/30
 dark:hover:bg-input/50
 dark:hover:bg-muted/50
 dark:hover:bg-transparent
@@ -1113,7 +1124,10 @@ data-[slot=checkbox-group]:gap-3
 data-[state=closed]:animate-collapsible-up
 data-[state=closed]:animate-out
 data-[state=closed]:fade-out-0
+data-[state=closed]:opacity-0
 data-[state=closed]:overflow-hidden
+data-[state=closed]:pointer-events-none
+data-[state=closed]:scale-95
 data-[state=closed]:zoom-out-95
 data-[state=delayed-open]:animate-in
 data-[state=delayed-open]:fade-in-0
@@ -1124,10 +1138,12 @@ data-[state=on]:bg-muted
 data-[state=open]:animate-collapsible-down
 data-[state=open]:animate-in
 data-[state=open]:fade-in-0
+data-[state=open]:flex
 data-[state=open]:hover:bg-sidebar-accent
 data-[state=open]:hover:text-sidebar-accent-foreground
 data-[state=open]:opacity-100
 data-[state=open]:rotate-180
+data-[state=open]:scale-100
 data-[state=open]:zoom-in-95
 data-[state=selected]:bg-muted
 data-[state=visible]:animate-in
@@ -1501,10 +1517,10 @@ flex-wrap:nowrap
 flex:
 float
 floating
+floating-window
 fmt
 focus-visible:after:border-ring
 focus-visible:bg-transparent
-focus-visible:border-destructive/40
 focus-visible:border-ring
 focus-visible:outline-1
 focus-visible:outline-hidden
@@ -1543,7 +1559,6 @@ font-sans
 font-semibold
 footer
 for
-foreach
 form
 form-description
 form-item
@@ -1594,7 +1609,7 @@ grid-rows-[auto_1fr]
 gridcell
 group
 group-action
-group-aria-expanded/accordion-trigger:hidden
+group-aria-expanded/accordion-trigger:rotate-180
 group-content
 group-data-[checked=true]/command-item
 group-data-[checked=true]/command-item:opacity-100
@@ -1758,6 +1773,7 @@ group/button-group
 group/calendar
 group/card
 group/card-header
+group/code-editor
 group/combobox-content
 group/command-item
 group/context-menu-item
@@ -1927,11 +1943,9 @@ hover:after:bg-sidebar-border
 hover:bg-accent
 hover:bg-background
 hover:bg-border
-hover:bg-destructive/20
 hover:bg-muted
 hover:bg-muted/50
 hover:bg-primary
-hover:bg-secondary/80
 hover:bg-sidebar-accent
 hover:bg-transparent
 hover:bg-white/10
@@ -1951,7 +1965,6 @@ hover:underline
 href
 hs
 icon
-icon-lg
 icon-sm
 icon-xs
 id
@@ -2045,7 +2058,6 @@ julio
 jun
 junho
 junio
-justify-
 justify-between
 justify-center
 justify-end
@@ -2055,9 +2067,7 @@ justify-start
 kbd
 kbd-chip
 kbd-group
-key
 key[0]
-kv
 label
 language
 last
@@ -2069,6 +2079,7 @@ lazy-reload
 lead
 leading-4
 leading-4.5
+leading-5
 leading-6
 leading-6.5
 leading-7
@@ -2079,6 +2090,7 @@ left
 left-0
 left-1.5
 left-1/2
+left-2
 left-[50%]
 legend
 lg
@@ -2230,12 +2242,14 @@ message-stack
 min
 min-h-0
 min-h-10
+min-h-11
 min-h-12
 min-h-14
 min-h-16
 min-h-72
 min-h-8
 min-h-[104px]
+min-h-[9.375rem]
 min-height:
 min-w-(--cell-size)
 min-w-0
@@ -2246,6 +2260,7 @@ min-w-5
 min-w-64
 min-w-7
 min-w-8
+min-w-[12.5rem]
 min-w-[120px]
 min-w-[18rem]
 min-w-[96px]
@@ -2314,6 +2329,7 @@ navigation-menu-list
 navigation-menu-trigger
 navigation-menu-viewport
 nd
+ne
 new
 next
 no
@@ -2336,9 +2352,9 @@ nth-last-2:-mt-1
 null
 number
 numeric
+nw
 object-contain
 object-cover
-object>
 oct
 octobre
 octubre
@@ -2615,6 +2631,13 @@ quark-command-list
 quark-datepicker-panel
 quark-datetimepicker-panel
 quark-dropdown
+quark-floating-window
+quark-floating-window-close
+quark-floating-window-content
+quark-floating-window-resize-handle
+quark-floating-window-title
+quark-floating-window-titlebar
+quark-fw
 quark-menubar
 quark-menubar-menu
 quark-radio
@@ -2631,8 +2654,6 @@ radio-group-item
 rail
 range
 rd
-rdp-button_next
-rdp-button_previous
 rdp-caption_label
 rdp-chevron
 rdp-day
@@ -2749,6 +2770,7 @@ scroll-area-viewport
 scroll-m-20
 scroll-my-1
 scroll-py-1
+se
 secondary
 seconds
 section
@@ -2785,6 +2807,7 @@ shadow-modal
 shadow-none
 shadow-none!
 shadow-sm
+shadow-xl
 shadow-xs
 sheet
 sheet-close
@@ -2825,6 +2848,7 @@ sidebar-menu-sub-item
 sidebar-rail
 sidebar-separator
 sidebar-trigger
+simple-icon
 single
 size-
 size-(--cell-size)
@@ -2841,7 +2865,6 @@ size-6
 size-6.5
 size-7
 size-8
-size-9
 size-auto
 size-full
 sizes
@@ -2922,7 +2945,7 @@ suitable
 summary
 supports-backdrop-filter:backdrop-blur-xs
 svg
-svgStart
+sw
 switch
 switch-thumb
 system
@@ -2968,7 +2991,6 @@ tabs-content
 tabs-list
 tabs-trigger
 tabular-nums
-tagEnd
 target
 tasks
 term:
@@ -2978,6 +3000,7 @@ text-3xl
 text-4xl
 text-[0.8rem]
 text-[1.05rem]
+text-[CanvasText]
 text-accent
 text-accent-foreground
 text-align:
@@ -2989,6 +3012,7 @@ text-center
 text-current
 text-destructive
 text-destructive-foreground
+text-ellipsis
 text-foreground
 text-foreground/60
 text-left
@@ -3075,6 +3099,7 @@ transition-[color,box-shadow]
 transition-[color,shadow]
 transition-[left,right,width]
 transition-[margin,opacity]
+transition-[opacity,transform]
 transition-[width,height,padding]
 transition-[width]
 transition-all
@@ -3108,7 +3133,6 @@ ul
 ulong
 unchecked
 underline-offset-4
-unescaped[(separator
 unordered-list
 unordered-list-item
 updated
@@ -3117,7 +3141,6 @@ usemap
 user
 user-select:
 using
-utility
 val
 validation
 validation-errors
