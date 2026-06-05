@@ -6,8 +6,15 @@ using Soenneker.Utils.File.Registrars;
 
 namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
 
+/// <summary>
+/// Represents the startup.
+/// </summary>
 public static class Startup
 {
+    /// <summary>
+    /// Configures services.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
     public static void ConfigureServices(IServiceCollection services)
     {
         services.AddFileUtilAsSingleton()
