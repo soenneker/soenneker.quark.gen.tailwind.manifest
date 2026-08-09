@@ -140,8 +140,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         var razorSources = new List<(string File, string Text)>();
         Dictionary<string, Type> runtimeRoots = CollectRuntimeFluentRoots();
 
-        List<string> csFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".cs", recursive: true, cancellationToken)
-                                                   .NoSync();
+        var csFiles = new List<string>(ProjectFileEnumerator.EnumerateByExtension(sourceRoot, ".cs", cancellationToken));
 
         foreach (string file in csFiles)
         {
@@ -160,8 +159,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             csSources.Add((file, text));
         }
 
-        List<string> razorFiles = await _directoryUtil.GetFilesByExtension(sourceRoot, ".razor", recursive: true, cancellationToken)
-                                                      .NoSync();
+        var razorFiles = new List<string>(ProjectFileEnumerator.EnumerateByExtension(sourceRoot, ".razor", cancellationToken));
 
         foreach (string file in razorFiles)
         {
