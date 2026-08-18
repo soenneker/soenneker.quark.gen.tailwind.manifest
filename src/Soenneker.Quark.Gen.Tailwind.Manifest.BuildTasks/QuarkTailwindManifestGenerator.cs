@@ -435,8 +435,10 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     {
         var classNames = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach ((string root, List<ChainSegment> segments) in EnumerateFluentChains(text))
+        foreach ((string root, List<ChainSegment> segments, int start) in EnumerateFluentChains(text))
         {
+            WarnForNonLiteralTokens(file, text, root, segments, start, runtimeRoots, Console.Out);
+
             List<string>? classes = null;
 
             if (!TryEvaluateRuntimeChain(runtimeRoots, root, segments, out classes, out _))
@@ -455,6 +457,31 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         int added = AddManifestClasses(uniqueLines, classNames, responsive: false);
         count += added;
         LogClasses("[Fluent]", file, classNames, added);
+    }
+
+    private static void WarnForNonLiteralTokens(string file, string text, string root, List<ChainSegment> segments, int start,
+        Dictionary<string, Type> runtimeRoots, TextWriter warningWriter)
+    {
+        if (!TryResolveRuntimeRoot(runtimeRoots, root, segments, out _, out _))
+            return;
+
+        foreach (ChainSegment segment in segments)
+        {
+            if (!string.Equals(segment.Name, "Token", StringComparison.Ordinal) || segment.Args.Count == 0 ||
+                ParseQuotedTokenLiteral(segment.Args[0]) is not null)
+                continue;
+
+            int line = 1;
+
+            for (var i = 0; i < start; i++)
+            {
+                if (text[i] == '\n')
+                    line++;
+            }
+
+            string expression = segment.Args[0].Trim().Replace("\r", " ", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
+            warningWriter.WriteLine($"{file}({line},1): warning QTW001: Tailwind class was not generated because Token({expression}) is not a string literal. Use a literal token or a static Tailwind class backed by CSS variables.");
+        }
     }
 
     private static Dictionary<string, Type> CollectRuntimeFluentRoots()
@@ -806,7 +833,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         return result;
     }
 
-    private static IEnumerable<(string Root, List<ChainSegment> Segments)> EnumerateFluentChains(string text)
+    private static IEnumerable<(string Root, List<ChainSegment> Segments, int Start)> EnumerateFluentChains(string text)
     {
         for (var i = 0; i < text.Length; i++)
         {
@@ -852,7 +879,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             }
 
             if (segments.Count > 0)
-                yield return (text.Substring(rootStart, rootEnd - rootStart), segments);
+                yield return (text.Substring(rootStart, rootEnd - rootStart), segments, rootStart);
 
             i = Math.Max(i, end - 1);
         }

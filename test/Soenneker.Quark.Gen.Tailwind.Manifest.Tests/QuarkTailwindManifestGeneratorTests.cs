@@ -4,6 +4,7 @@ using Soenneker.Tests.Unit;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 
 namespace Soenneker.Quark.Gen.Tailwind.Manifest.Tests;
@@ -85,6 +86,23 @@ public sealed class QuarkTailwindManifestGeneratorTests : UnitTest
         List<string> classes = EvaluateClasses(("TextSize", []), ("OnFocusVisible", []), ("Sm", []));
 
         classes.Should().Contain("focus-visible:text-sm");
+    }
+
+    [Test]
+    [NotInParallel]
+    public void WarnForNonLiteralTokens_emits_MSBuild_warning_for_dynamic_token()
+    {
+        const string source = "first line\nsecond line\nHeight.Token(smallHeight)";
+        Type generatorType = typeof(QuarkTailwindManifestGenerator);
+        MethodInfo rootsMethod = generatorType.GetMethod("CollectRuntimeFluentRoots", BindingFlags.NonPublic | BindingFlags.Static)!;
+        object roots = rootsMethod.Invoke(null, [])!;
+        object segments = BuildSegmentList(generatorType, ("Token", ["smallHeight"]));
+        MethodInfo warningMethod = generatorType.GetMethod("WarnForNonLiteralTokens", BindingFlags.NonPublic | BindingFlags.Static)!;
+        using var output = new StringWriter();
+        warningMethod.Invoke(null, ["Console.razor", source, "Height", segments, source.IndexOf("Height", StringComparison.Ordinal), roots, output]);
+
+        output.ToString().Should().Contain("Console.razor(3,1): warning QTW001:");
+        output.ToString().Should().Contain("Token(smallHeight) is not a string literal");
     }
 
     private static List<string> EvaluateClasses(params (string Name, string[] Args)[] segments)
