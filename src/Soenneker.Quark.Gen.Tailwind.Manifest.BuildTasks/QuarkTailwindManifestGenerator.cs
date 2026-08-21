@@ -209,9 +209,21 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         foreach (string line in final)
             sb.AppendLine(line);
 
+        string contents = sb.ToStringAndDispose();
+
+        if (await _fileUtil.Exists(outputPath, cancellationToken).NoSync())
+        {
+            string existing = await _fileUtil.Read(outputPath, log: false, cancellationToken).NoSync();
+
+            if (string.Equals(existing, contents, StringComparison.Ordinal))
+            {
+                _logger.LogInformation("Tailwind manifest is unchanged at {OutputPath}.", outputPath);
+                return;
+            }
+        }
+
         _logger.LogInformation("Writing Tailwind manifest to {OutputPath}.", outputPath);
-        await _fileUtil.Write(outputPath, sb.ToStringAndDispose(), cancellationToken: cancellationToken)
-                       .NoSync();
+        await _fileUtil.Write(outputPath, contents, cancellationToken: cancellationToken).NoSync();
     }
 
     private async Task EnsureLocalSuiteManifest(string projectDir, string outputPath, CancellationToken cancellationToken)
@@ -960,12 +972,12 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
         if (prefix is not null && responsive is not null && className is not null)
         {
-            _logger.LogInformation("{Tag} {File} -> class {ClassName}, prefix={Prefix}, responsive={Responsive}, classes=[{Classes}], lines added={Added}", tag,
+            _logger.LogDebug("{Tag} {File} -> class {ClassName}, prefix={Prefix}, responsive={Responsive}, classes=[{Classes}], lines added={Added}", tag,
                 file, className, prefix, responsive.Value, string.Join(", ", classList), added);
             return;
         }
 
-        _logger.LogInformation("{Tag} {File} -> classes=[{Classes}], lines added={Added}", tag, file, string.Join(", ", classList), added);
+        _logger.LogDebug("{Tag} {File} -> classes=[{Classes}], lines added={Added}", tag, file, string.Join(", ", classList), added);
     }
 
     private static int AddManifestClasses(HashSet<string> uniqueLines, HashSet<string> classes, bool responsive)

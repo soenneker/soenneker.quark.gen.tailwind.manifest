@@ -17,10 +17,18 @@
         <_QuarkTailwindManifestProjectDir Condition="'$(_QuarkTailwindManifestProjectDir)' == ''">$(MSBuildProjectDirectory)</_QuarkTailwindManifestProjectDir>
         <QuarkTailwindManifestOutput Condition="'$(QuarkTailwindManifestOutput)' == ''">$([System.IO.Path]::Combine('$(_QuarkTailwindManifestProjectDir)', 'tailwind', 'quark-tailwind-manifest.txt'))</QuarkTailwindManifestOutput>
         <_QuarkTailwindManifestOutputArg Condition="'$(QuarkTailwindManifestOutput)' != ''"> --manifestOutput &quot;$(QuarkTailwindManifestOutput)&quot;</_QuarkTailwindManifestOutputArg>
+        <_QuarkTailwindManifestStamp>$([System.IO.Path]::Combine('$(MSBuildProjectExtensionsPath)', '$(Configuration)', '$(TargetFramework)', 'quark-tailwind-manifest-generator.stamp'))</_QuarkTailwindManifestStamp>
     </PropertyGroup>
+
+    <ItemGroup>
+        <_QuarkTailwindManifestInputs Include="$(_QuarkTailwindManifestProjectDir)\**\*.cs;$(_QuarkTailwindManifestProjectDir)\**\*.razor"
+                                      Exclude="$(_QuarkTailwindManifestProjectDir)\bin\**;$(_QuarkTailwindManifestProjectDir)\obj\**;$(_QuarkTailwindManifestProjectDir)\tailwind\**;$(_QuarkTailwindManifestProjectDir)\node_modules\**" />
+    </ItemGroup>
 
     <Target Name="RunQuarkTailwindManifestGeneratorBuildTasks"
             BeforeTargets="Build"
+            Inputs="@(_QuarkTailwindManifestInputs);$(MSBuildProjectFullPath);$(ProjectAssetsFile);$(QuarkTailwindManifestBuildTasksDllPath)"
+            Outputs="$(QuarkTailwindManifestOutput);$(_QuarkTailwindManifestStamp)"
             Condition="'$(DesignTimeBuild)'!='true' and '$(IsCrossTargetingBuild)'!='true' and '$(QuarkTailwindManifestGeneratorBuildEnabled)'=='true'">
 
         <Message Importance="high" Text="Running Soenneker.Quark.Gen.Tailwind.Manifest BuildTasks: projectDir=$(_QuarkTailwindManifestProjectDir) output=$(QuarkTailwindManifestOutput)" />
@@ -31,11 +39,13 @@
         <Error Condition="!Exists('$(QuarkTailwindManifestBuildTasksDllPath)')"
                Text="Tailwind.Manifest BuildTasks DLL not found at '$(QuarkTailwindManifestBuildTasksDllPath)'." />
 
+        <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(_QuarkTailwindManifestStamp)'))" />
         <Exec WorkingDirectory="$(_QuarkTailwindManifestProjectDir)"
               IgnoreExitCode="false"
               ConsoleToMSBuild="true"
               StandardOutputImportance="high"
               StandardErrorImportance="high"
               Command='dotnet exec &quot;$(QuarkTailwindManifestBuildTasksDllPath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot;$(_QuarkTailwindManifestOutputArg)' />
+        <Touch Files="$(QuarkTailwindManifestOutput);$(_QuarkTailwindManifestStamp)" AlwaysCreate="true" />
     </Target>
 </Project>
