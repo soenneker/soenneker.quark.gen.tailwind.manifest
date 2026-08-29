@@ -9,9 +9,9 @@ namespace Soenneker.Quark.Gen.Tailwind.Manifest;
 public sealed class QuarkTailwindManifestGeneratorGenerator : IIncrementalGenerator
 {
     /// <summary>
-    /// Executes the initialize operation.
+    /// Initializes the Quark Tailwind Manifest Generator Generator so it is ready for use.
     /// </summary>
-    /// <param name="context">The context.</param>
+    /// <param name="context">HTTP context containing the Authorization header.</param>
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Generator runs only on build; BuildTasks write the Tailwind class manifest.
