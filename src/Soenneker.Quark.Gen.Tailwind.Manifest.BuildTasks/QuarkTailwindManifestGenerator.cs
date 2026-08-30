@@ -20,7 +20,6 @@ using Soenneker.Extensions.ValueTask;
 
 namespace Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks;
 
-/// <inheritdoc cref="IQuarkTailwindManifestGenerator"/>
 public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManifestGenerator
 {
     private const string _tailwindDirName = "tailwind";
