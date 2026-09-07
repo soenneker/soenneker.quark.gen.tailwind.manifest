@@ -196,7 +196,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             totalFilesScanned, final.Count, outputPath);
         _logger.LogInformation("Fluent builder-derived class entries added: {FluentClassCount}.", fluentClasses);
 
-        if (final.Count > 0)
+        if (final.Count > 0 && _logger.IsEnabled(LogLevel.Information))
         {
             int sampleCount = Math.Min(15, final.Count);
             _logger.LogInformation("Sample class names: {SampleClasses}", string.Join(", ", final.GetRange(0, sampleCount)));
@@ -857,7 +857,10 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             int cursor = SkipWhitespace(text, rootEnd);
 
             if (cursor >= text.Length || text[cursor] != '.')
+            {
+                i = rootEnd - 1;
                 continue;
+            }
 
             var segments = new List<ChainSegment>(4);
             int end = cursor;
@@ -874,7 +877,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 int nameEnd = ReadIdentifier(text, cursor);
                 string name = text.Substring(nameStart, nameEnd - nameStart);
                 cursor = SkipWhitespace(text, nameEnd);
-                var args = new List<string>(2);
+                List<string> args;
 
                 if (cursor < text.Length && text[cursor] == '(')
                 {
@@ -883,6 +886,10 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
                     args = SplitArguments(argsText!);
                     cursor = closeIndex + 1;
+                }
+                else
+                {
+                    args = new List<string>();
                 }
 
                 segments.Add(new ChainSegment(name, args));
@@ -967,6 +974,9 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     private void LogClasses(string tag, string file, HashSet<string> classNames, int added, string? prefix = null, bool? responsive = null,
         string? className = null)
     {
+        if (!_logger.IsEnabled(LogLevel.Debug))
+            return;
+
         var classList = new List<string>(classNames);
         classList.Sort(StringComparer.Ordinal);
 
