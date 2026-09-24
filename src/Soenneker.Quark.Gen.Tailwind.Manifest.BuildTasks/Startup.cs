@@ -20,6 +20,5 @@ public static class Startup
         services.AddFileUtilAsSingleton()
                 .AddDirectoryUtilAsSingleton();
         services.TryAddSingleton<IQuarkTailwindManifestGenerator, QuarkTailwindManifestGenerator>();
-        services.AddHostedService<ConsoleHostedService>();
     }
 }
