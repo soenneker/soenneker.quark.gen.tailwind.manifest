@@ -15,5 +15,8 @@
         <ProjectReference Include="..\..\src\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks\Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.csproj" />
         <ProjectReference Include="..\..\src\Soenneker.Quark.Gen.Tailwind.Manifest\Soenneker.Quark.Gen.Tailwind.Manifest.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
     </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="AwesomeAssertions" Version="9.6.0" />
+    </ItemGroup>
 </Project>
 
