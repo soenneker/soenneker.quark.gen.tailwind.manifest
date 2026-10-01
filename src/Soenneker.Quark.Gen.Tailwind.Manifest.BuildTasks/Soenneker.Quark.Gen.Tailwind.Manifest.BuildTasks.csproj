@@ -23,7 +23,10 @@
         <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.124" />
     </ItemGroup>
     <!-- Fluent chains reflect over the known builder library; preserve its callable members. -->
-    <ItemGroup>
-        <TrimmerRootAssembly Include="Soenneker.Quark.Builders" />
-    </ItemGroup>
+    <Target Name="PreserveQuarkBuilderAssemblies" BeforeTargets="ComputeIlcCompileInputs;PrepareForILLink" DependsOnTargets="ResolveReferences">
+        <ItemGroup>
+            <TrimmerRootAssembly Include="%(ReferencePath.Filename)"
+                                 Condition="$([System.String]::Copy('%(ReferencePath.Filename)').StartsWith('Soenneker.Quark.'))" />
+        </ItemGroup>
+    </Target>
 </Project>
