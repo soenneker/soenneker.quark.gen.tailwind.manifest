@@ -2,11 +2,13 @@
     <PropertyGroup>
         <OutputType>Exe</OutputType>
         <TargetFramework>net10.0</TargetFramework>
+        <IsAotCompatible>true</IsAotCompatible>
+        <PublishAot>true</PublishAot>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
         <LangVersion>latest</LangVersion>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+        <AppendRuntimeIdentifierToOutputPath>true</AppendRuntimeIdentifierToOutputPath>
         <AssemblyName>Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks</AssemblyName>
     </PropertyGroup>
 
@@ -19,5 +21,9 @@
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.124" />
+    </ItemGroup>
+    <!-- Fluent chains reflect over the known builder library; preserve its callable members. -->
+    <ItemGroup>
+        <TrimmerRootAssembly Include="Soenneker.Quark.Builders" />
     </ItemGroup>
 </Project>

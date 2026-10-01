@@ -5,13 +5,16 @@
     </Target>
 
     <PropertyGroup>
+        <!-- Select the SDK host rather than the application's RuntimeIdentifier (for example browser-wasm). -->
+        <QuarkTailwindManifestToolRuntimeIdentifier Condition="'$(QuarkTailwindManifestToolRuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</QuarkTailwindManifestToolRuntimeIdentifier>
+        <_QuarkTailwindManifestExecutableName>Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks</_QuarkTailwindManifestExecutableName>
+        <_QuarkTailwindManifestExecutableName Condition="$([System.String]::Copy('$(QuarkTailwindManifestToolRuntimeIdentifier)').StartsWith('win-'))">$(_QuarkTailwindManifestExecutableName).exe</_QuarkTailwindManifestExecutableName>
+        <_QuarkTailwindManifestNativePackagePath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../tools/native/$(QuarkTailwindManifestToolRuntimeIdentifier)/$(_QuarkTailwindManifestExecutableName)'))</_QuarkTailwindManifestNativePackagePath>
+        <_QuarkTailwindManifestNativeProjectPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../artifacts/native/$(QuarkTailwindManifestToolRuntimeIdentifier)/$(_QuarkTailwindManifestExecutableName)'))</_QuarkTailwindManifestNativeProjectPath>
+        <QuarkTailwindManifestBuildTasksExecutablePath Condition="'$(QuarkTailwindManifestBuildTasksExecutablePath)' == '' and Exists('$(_QuarkTailwindManifestNativePackagePath)')">$(_QuarkTailwindManifestNativePackagePath)</QuarkTailwindManifestBuildTasksExecutablePath>
+        <QuarkTailwindManifestBuildTasksExecutablePath Condition="'$(QuarkTailwindManifestBuildTasksExecutablePath)' == ''">$(_QuarkTailwindManifestNativeProjectPath)</QuarkTailwindManifestBuildTasksExecutablePath>
+
         <!-- Package-scoped names so multiple Soenneker.Quark.Gen.* packages can coexist in one project. -->
-        <_QuarkTailwindManifestBuildTasksDllFromPackage>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', 'Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll'))</_QuarkTailwindManifestBuildTasksDllFromPackage>
-        <_QuarkTailwindManifestBuildTasksDllFromBuildTransitive>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', 'buildTransitive', 'Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll'))))</_QuarkTailwindManifestBuildTasksDllFromBuildTransitive>
-        <_QuarkTailwindManifestBuildTasksDllFromProject>$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', 'Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks', 'bin', '$(Configuration)', 'Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.dll'))))</_QuarkTailwindManifestBuildTasksDllFromProject>
-        <QuarkTailwindManifestBuildTasksDllPath Condition="'$(QuarkTailwindManifestBuildTasksDllPath)'=='' and Exists('$(_QuarkTailwindManifestBuildTasksDllFromPackage)')">$(_QuarkTailwindManifestBuildTasksDllFromPackage)</QuarkTailwindManifestBuildTasksDllPath>
-        <QuarkTailwindManifestBuildTasksDllPath Condition="'$(QuarkTailwindManifestBuildTasksDllPath)'=='' and Exists('$(_QuarkTailwindManifestBuildTasksDllFromBuildTransitive)')">$(_QuarkTailwindManifestBuildTasksDllFromBuildTransitive)</QuarkTailwindManifestBuildTasksDllPath>
-        <QuarkTailwindManifestBuildTasksDllPath Condition="'$(QuarkTailwindManifestBuildTasksDllPath)'=='' and Exists('$(_QuarkTailwindManifestBuildTasksDllFromProject)')">$(_QuarkTailwindManifestBuildTasksDllFromProject)</QuarkTailwindManifestBuildTasksDllPath>
         <QuarkTailwindManifestGeneratorBuildEnabled Condition="'$(QuarkTailwindManifestGeneratorBuildEnabled)'==''">true</QuarkTailwindManifestGeneratorBuildEnabled>
         <_QuarkTailwindManifestProjectDir>$([System.IO.Path]::GetDirectoryName('$(ProjectDir)x'))</_QuarkTailwindManifestProjectDir>
         <_QuarkTailwindManifestProjectDir Condition="'$(_QuarkTailwindManifestProjectDir)' == ''">$(MSBuildProjectDirectory)</_QuarkTailwindManifestProjectDir>
@@ -27,25 +30,27 @@
 
     <Target Name="RunQuarkTailwindManifestGeneratorBuildTasks"
             BeforeTargets="Build"
-            Inputs="@(_QuarkTailwindManifestInputs);$(MSBuildProjectFullPath);$(ProjectAssetsFile);$(QuarkTailwindManifestBuildTasksDllPath)"
+            Inputs="@(_QuarkTailwindManifestInputs);$(MSBuildProjectFullPath);$(ProjectAssetsFile);$(QuarkTailwindManifestBuildTasksExecutablePath)"
             Outputs="$(QuarkTailwindManifestOutput);$(_QuarkTailwindManifestStamp)"
             Condition="'$(DesignTimeBuild)'!='true' and '$(IsCrossTargetingBuild)'!='true' and '$(QuarkTailwindManifestGeneratorBuildEnabled)'=='true'">
 
         <Message Importance="high" Text="Running Soenneker.Quark.Gen.Tailwind.Manifest BuildTasks: projectDir=$(_QuarkTailwindManifestProjectDir) output=$(QuarkTailwindManifestOutput)" />
         <Error Condition="'$(_QuarkTailwindManifestProjectDir)' == ''"
                Text="Soenneker.Quark.Gen.Tailwind.Manifest: project directory could not be resolved (ProjectDir and MSBuildProjectDirectory are empty)." />
-        <Error Condition="'$(QuarkTailwindManifestBuildTasksDllPath)'==''"
-               Text="QuarkTailwindManifestBuildTasksDllPath was not resolved. MSBuildThisFileDirectory=$(MSBuildThisFileDirectory)" />
-        <Error Condition="!Exists('$(QuarkTailwindManifestBuildTasksDllPath)')"
-               Text="Tailwind.Manifest BuildTasks DLL not found at '$(QuarkTailwindManifestBuildTasksDllPath)'." />
+        <Error Condition="'$(QuarkTailwindManifestBuildTasksExecutablePath)'==''"
+               Text="QuarkTailwindManifestBuildTasksExecutablePath was not resolved. MSBuildThisFileDirectory=$(MSBuildThisFileDirectory)" />
+        <Error Condition="!Exists('$(QuarkTailwindManifestBuildTasksExecutablePath)')"
+               Text="Tailwind.Manifest native BuildTasks executable not found at '$(QuarkTailwindManifestBuildTasksExecutablePath)'." />
 
         <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(_QuarkTailwindManifestStamp)'))" />
+        <!-- NuGet extraction does not preserve Unix execute permissions. -->
+        <Exec Condition="'$(OS)' != 'Windows_NT'" Command="chmod +x &quot;$(QuarkTailwindManifestBuildTasksExecutablePath)&quot;" />
         <Exec WorkingDirectory="$(_QuarkTailwindManifestProjectDir)"
               IgnoreExitCode="false"
               ConsoleToMSBuild="true"
               StandardOutputImportance="high"
               StandardErrorImportance="high"
-              Command='dotnet exec &quot;$(QuarkTailwindManifestBuildTasksDllPath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot;$(_QuarkTailwindManifestOutputArg)' />
+              Command='&quot;$(QuarkTailwindManifestBuildTasksExecutablePath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot;$(_QuarkTailwindManifestOutputArg)' />
         <Touch Files="$(QuarkTailwindManifestOutput);$(_QuarkTailwindManifestStamp)" AlwaysCreate="true" />
     </Target>
 </Project>
