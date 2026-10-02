@@ -29,4 +29,7 @@
                                  Condition="$([System.String]::Copy('%(ReferencePath.Filename)').StartsWith('Soenneker.Quark.'))" />
         </ItemGroup>
     </Target>
+    <ItemGroup>
+        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2735" />
+    </ItemGroup>
 </Project>

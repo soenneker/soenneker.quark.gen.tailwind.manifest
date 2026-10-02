@@ -1,3 +1,4 @@
+using Soenneker.Utils.Json;
 using Microsoft.Extensions.Logging;
 using Soenneker.Extensions.String;
 using Soenneker.Extensions.Task;
@@ -10,6 +11,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -30,7 +32,9 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static readonly string[] _responsivePrefixes = ["", "sm:", "md:", "lg:", "xl:", "2xl:"];
 
-    private readonly record struct ChainSegment(string Name, List<string> Args);
+    private static readonly List<string> _emptyArguments = [];
+    private static readonly ConditionalWeakTable<Type, RuntimeMethodCache> _runtimeMethods = new();
+    private static readonly ConditionalWeakTable<Assembly, Dictionary<string, Type>> _runtimeTypes = new();
 
     [GeneratedRegex(
         @"\[(?<attr>[^\]]*TailwindPrefix[^\]]*)\]\s*(?:(?:public|internal|private|protected)\s+)?(?:sealed\s+)?class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b(?<after>[^{]*)\{",
@@ -136,56 +140,53 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         var uniqueLines = new HashSet<string>(StringComparer.Ordinal);
         var totalFilesScanned = 0;
         var fluentClasses = 0;
-        var csSources = new List<(string File, string Text)>();
-        var razorSources = new List<(string File, string Text)>();
         Dictionary<string, Type> runtimeRoots = CollectRuntimeFluentRoots();
 
-        var csFiles = new List<string>(ProjectFileEnumerator.EnumerateByExtension(sourceRoot, ".cs", cancellationToken));
+        const int batchSize = 8;
+        var pendingReads = new Task<string?>[batchSize];
+        var pendingFiles = new (string File, bool IsRazor)[batchSize];
+        var pendingCount = 0;
 
-        foreach (string file in csFiles)
+        async ValueTask ProcessPending()
         {
-            if (IsExcluded(file))
-                continue;
-
-            cancellationToken.ThrowIfCancellationRequested();
-            totalFilesScanned++;
-
-            string? text = await TryReadFile(file, isRazor: false, cancellationToken)
-                .NoSync();
-
-            if (text is null)
-                continue;
-
-            csSources.Add((file, text));
+            // Bound retained source text and overlap reads while preserving processing order.
+            string?[] texts = await Task.WhenAll(pendingReads.AsSpan(0, pendingCount).ToArray()).NoSync();
+            for (var index = 0; index < pendingCount; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string? text = texts[index];
+                if (text is null)
+                    continue;
+                (string file, bool isRazor) = pendingFiles[index];
+                AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref fluentClasses);
+            }
+            Array.Clear(pendingReads, 0, pendingCount);
+            pendingCount = 0;
         }
 
-        var razorFiles = new List<string>(ProjectFileEnumerator.EnumerateByExtension(sourceRoot, ".razor", cancellationToken));
-
-        foreach (string file in razorFiles)
+        try
         {
-            if (IsExcluded(file))
-                continue;
+            foreach (string file in ProjectFileEnumerator.EnumerateByExtensions(sourceRoot, [".cs", ".razor"], cancellationToken))
+            {
+                if (IsExcluded(file))
+                    continue;
 
-            cancellationToken.ThrowIfCancellationRequested();
-            totalFilesScanned++;
-
-            string? text = await TryReadFile(file, isRazor: true, cancellationToken)
-                .NoSync();
-
-            if (text is null)
-                continue;
-
-            razorSources.Add((file, text));
+                cancellationToken.ThrowIfCancellationRequested();
+                totalFilesScanned++;
+                bool isRazor = Path.GetExtension(file.AsSpan()).Equals(".razor", StringComparison.OrdinalIgnoreCase);
+                pendingFiles[pendingCount] = (file, isRazor);
+                pendingReads[pendingCount++] = TryReadFile(file, isRazor, cancellationToken).AsTask();
+                if (pendingCount == batchSize)
+                    await ProcessPending().NoSync();
+            }
+            if (pendingCount != 0)
+                await ProcessPending().NoSync();
         }
-
-        foreach ((string file, string text) in csSources)
+        finally
         {
-            AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref fluentClasses);
-        }
-
-        foreach ((string file, string text) in razorSources)
-        {
-            AddFluentInvocationClasses(file, text, runtimeRoots, uniqueLines, ref fluentClasses);
+            // Observe all in-flight reads even when enumeration or parsing fails.
+            if (pendingCount != 0)
+                await Task.WhenAll(pendingReads.AsSpan(0, pendingCount).ToArray()).NoSync();
         }
 
         var final = new List<string>(uniqueLines);
@@ -353,7 +354,8 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             string assetsJson = await _fileUtil.Read(assetsPath, log: false, cancellationToken)
                                                .NoSync();
 
-            using JsonDocument document = JsonDocument.Parse(assetsJson);
+            using JsonDocument document = JsonUtil.Deserialize(assetsJson, AotJsonContext.Default.JsonDocument)
+                ?? throw new JsonException("The project assets JSON is empty.");
 
             if (!document.RootElement.TryGetProperty("libraries", out JsonElement libraries) ||
                 !document.RootElement.TryGetProperty("packageFolders", out JsonElement packageFolders))
@@ -435,7 +437,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                                          .NoSync();
             return isRazor ? StripRazorComments(text) : StripComments(text);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogInformation(ex, "Failed to read {Kind} file {File}", isRazor ? "razor" : "source", file);
             return null;
@@ -447,7 +449,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
     {
         var classNames = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach ((string root, List<ChainSegment> segments, int start) in EnumerateFluentChains(text))
+        foreach ((string root, List<ChainSegment> segments, int start) in EnumerateFluentChains(text, runtimeRoots))
         {
             WarnForNonLiteralTokens(file, text, root, segments, start, runtimeRoots, Console.Out);
 
@@ -644,15 +646,17 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static bool TryInvokeMethod(object? instance, Type type, ChainSegment segment, BindingFlags bindingFlags, out object? value)
     {
-        foreach (MethodInfo method in type.GetMethods(bindingFlags))
+        RuntimeMethodCache cache = _runtimeMethods.GetValue(type, static key => new RuntimeMethodCache(key));
+        if (!cache.TryGetMethods(segment.Name, segment.Args.Count, (bindingFlags & BindingFlags.Static) != 0, out List<RuntimeMethod>? methods))
         {
-            if (method.IsSpecialName || !string.Equals(method.Name, segment.Name, StringComparison.Ordinal))
-                continue;
+            value = null;
+            return false;
+        }
 
-            ParameterInfo[] parameters = method.GetParameters();
-
-            if (parameters.Length != segment.Args.Count)
-                continue;
+        foreach (RuntimeMethod candidate in methods!)
+        {
+            MethodInfo method = candidate.Method;
+            ParameterInfo[] parameters = candidate.Parameters;
 
             var args = new object?[parameters.Length];
             var supported = true;
@@ -804,13 +808,14 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
     private static Type? FindRuntimeType(string typeName, Assembly assembly)
     {
-        foreach (Type type in assembly.GetExportedTypes())
+        Dictionary<string, Type> types = _runtimeTypes.GetValue(assembly, static key =>
         {
-            if (string.Equals(type.Name, typeName, StringComparison.Ordinal))
-                return type;
-        }
-
-        return null;
+            var result = new Dictionary<string, Type>(StringComparer.Ordinal);
+            foreach (Type type in key.GetExportedTypes())
+                result.TryAdd(type.Name, type);
+            return result;
+        });
+        return types.GetValueOrDefault(typeName);
     }
 
     private static List<string> SplitClassList(string classList)
@@ -845,7 +850,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         return result;
     }
 
-    private static IEnumerable<(string Root, List<ChainSegment> Segments, int Start)> EnumerateFluentChains(string text)
+    private static IEnumerable<(string Root, List<ChainSegment> Segments, int Start)> EnumerateFluentChains(string text, Dictionary<string, Type>? runtimeRoots = null)
     {
         for (var i = 0; i < text.Length; i++)
         {
@@ -862,7 +867,11 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 continue;
             }
 
-            var segments = new List<ChainSegment>(4);
+            bool capture = runtimeRoots is null ||
+                           runtimeRoots.GetAlternateLookup<ReadOnlySpan<char>>().ContainsKey(text.AsSpan(rootStart, rootEnd - rootStart)) ||
+                           text.AsSpan(rootStart, rootEnd - rootStart).SequenceEqual("Quark") ||
+                           text.AsSpan(rootStart, rootEnd - rootStart).SequenceEqual("Soenneker");
+            List<ChainSegment>? segments = capture ? new List<ChainSegment>(4) : null;
             int end = cursor;
 
             while (cursor < text.Length && text[cursor] == '.')
@@ -875,36 +884,36 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
 
                 int nameStart = cursor;
                 int nameEnd = ReadIdentifier(text, cursor);
-                string name = text.Substring(nameStart, nameEnd - nameStart);
+                string? name = capture ? text.Substring(nameStart, nameEnd - nameStart) : null;
                 cursor = SkipWhitespace(text, nameEnd);
                 List<string> args;
 
                 if (cursor < text.Length && text[cursor] == '(')
                 {
-                    if (!TryReadParenthesized(text, cursor, out string? argsText, out int closeIndex))
+                    if (!TryReadParenthesized(text, cursor, out string? argsText, out int closeIndex, capture))
                         break;
 
-                    args = SplitArguments(argsText!);
+                    args = capture ? SplitArguments(argsText!) : _emptyArguments;
                     cursor = closeIndex + 1;
                 }
                 else
                 {
-                    args = new List<string>();
+                    args = _emptyArguments;
                 }
 
-                segments.Add(new ChainSegment(name, args));
+                segments?.Add(new ChainSegment(name!, args));
                 end = cursor;
                 cursor = SkipWhitespace(text, cursor);
             }
 
-            if (segments.Count > 0)
+            if (segments is { Count: > 0 })
                 yield return (text.Substring(rootStart, rootEnd - rootStart), segments, rootStart);
 
             i = Math.Max(i, end - 1);
         }
     }
 
-    private static bool TryReadParenthesized(string text, int openParenIndex, out string? value, out int closeIndex)
+    private static bool TryReadParenthesized(string text, int openParenIndex, out string? value, out int closeIndex, bool capture = true)
     {
         value = null;
         closeIndex = -1;
@@ -939,7 +948,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 continue;
 
             closeIndex = i;
-            value = text.Substring(openParenIndex + 1, i - openParenIndex - 1);
+            value = capture ? text.Substring(openParenIndex + 1, i - openParenIndex - 1) : null;
             return true;
         }
 
@@ -1279,8 +1288,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 i++;
 
             if (i > start)
-                target.Add(span[start..i]
-                    .ToString());
+                AddClassToken(target, span[start..i]);
         }
     }
 
@@ -1425,6 +1433,15 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         return false;
     }
 
+    private static void AddClassToken(ISet<string> target, ReadOnlySpan<char> token)
+    {
+        // Repeated utility classes should not allocate strings that the set immediately discards.
+        if (target is HashSet<string> set && set.TryGetAlternateLookup<ReadOnlySpan<char>>(out var lookup))
+            lookup.Add(token);
+        else
+            target.Add(token.ToString());
+    }
+
     private static void AddCandidateClassString(ISet<string> target, string value)
     {
         if (value.IsNullOrWhiteSpace())
@@ -1467,7 +1484,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         {
             ReadOnlySpan<char> single = span.Trim();
             if (IsValidTailwindClassToken(single))
-                target.Add(single.ToString());
+                AddClassToken(target, single);
             return;
         }
 
@@ -1493,7 +1510,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             if (!IsValidTailwindClassToken(token))
                 continue;
 
-            target.Add(token.ToString());
+            AddClassToken(target, token);
         }
     }
 

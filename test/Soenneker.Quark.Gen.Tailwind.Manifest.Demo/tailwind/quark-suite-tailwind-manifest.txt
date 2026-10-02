@@ -12,6 +12,7 @@
 !ring-0
 !rounded-none
 !shadow-none
+&&
 **:[[cmdk-group-heading]]:font-medium
 **:[[cmdk-group-heading]]:px-2
 **:[[cmdk-group-heading]]:py-1.5
@@ -138,6 +139,7 @@
 -80px
 -bottom-1
 -bottom-12
+-dark
 -left-1
 -left-12
 -mb-4
@@ -162,12 +164,17 @@
 -translate-x-px
 -translate-y-1/2
 -webkit-text-fill-color:transparent
+?
+@(WrapLines
+@(_wrap
+@(root
 @container/card-header
 @container/field-group
 AM
 Accept
 AcceptAll
 Add
+AddQuarkThemeAsScoped
 AdditionalAttributes
 All
 Allows
@@ -227,6 +234,10 @@ Column_{columnIndex}
 Connection
 Connections
 Console
+ConsoleFormatExceptions
+ConsoleFormatJson
+ConsoleShowWrapToggle
+ConsoleWrapLines
 ContentAttributes
 Control+C
 Control+D
@@ -265,8 +276,8 @@ Enter
 Error
 Escape
 Every
+Exception
 Expanded
-Extension
 F2
 Failed
 Fast
@@ -282,6 +293,8 @@ FitView
 Flash
 FormControlSlot
 FormHorizontal
+FormatExceptions
+FormatJson
 G15
 GPT-4
 GPT-4o
@@ -588,6 +601,7 @@ Set
 SetDateRange
 Show
 ShowCode
+ShowWrapToggle
 Side
 Sidebar
 SidebarContextState
@@ -616,6 +630,7 @@ Toggle
 ToggleAmPm
 ToggleOpen
 TogglePasswordVisibility
+Tools
 TotalRecords
 Tree
 TriggerAttributes
@@ -639,6 +654,7 @@ Wait
 We
 Week
 Window
+WrapLines
 XValues
 XValues![index]
 Year
@@ -945,6 +961,7 @@ aspect-ratio
 aspect-ratio:800/320
 aspect-square
 assistant
+async
 at
 attachment
 attachment-description
@@ -972,6 +989,7 @@ avatar-fallback
 avatar-group
 avatar-group-count
 avatar-image
+avif
 avril
 backdrop-blur
 backdrop-blur-[1px]
@@ -1061,7 +1079,6 @@ bg-sky-500/10
 bg-transparent
 bg-white
 black
-blob:
 block
 block-end
 block-start
@@ -1301,6 +1318,16 @@ consent-manager
 consentInfo
 console
 console-actions
+console-exception
+console-frame
+console-hide
+console-json-payload
+console-location
+console-message
+console-secondary
+console-show
+console-tools
+console-trace
 contain
 contain:strict
 container
@@ -1776,6 +1803,8 @@ data-port-id
 data-port-type
 data-position
 data-pressed:bg-transparent
+data-quark-media
+data-quark-theme
 data-readonly
 data-responsive
 data-reverse
@@ -1813,7 +1842,6 @@ data-variant
 data-vaul-drawer-direction
 data-viewport
 data-week-numbers
-data:
 datatable-bottom-bar
 datatable-empty
 datatable-empty-content
@@ -1966,7 +1994,6 @@ empty-header
 empty-icon
 empty-title
 en
-en-US
 enables
 end
 end-0
@@ -2735,6 +2762,17 @@ jan
 janeiro
 janvier
 json
+json-@value.ValueKind.ToString().ToLowerInvariant()
+json-caret
+json-children
+json-closing
+json-collapsed
+json-count
+json-key
+json-leaf
+json-node
+json-tools
+json-tree
 juillet
 juin
 jul
@@ -2944,6 +2982,7 @@ md:w-(--radix-navigation-menu-viewport-width)
 md:w-auto
 me-auto
 measurement
+media
 meet
 menu
 menu-action
@@ -3308,6 +3347,8 @@ peer/menu-button
 per
 percentage
 personalized
+picture
+picture-source
 pill
 pill-close
 pill-delta
@@ -3935,7 +3976,6 @@ style
 submit
 success
 successful
-such
 suggestion
 suggestion-list
 suggestions
@@ -4238,7 +4278,6 @@ w-px
 w-screen!
 warning
 was
-webp
 when
 which
 while

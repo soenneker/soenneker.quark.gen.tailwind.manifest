@@ -1,3 +1,5 @@
+using Soenneker.Extensions.ValueTask;
+using Soenneker.Extensions.Task;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -18,7 +20,7 @@ public sealed class NativeExecutableTests
         Directory.CreateDirectory(directory);
         try
         {
-            await File.WriteAllTextAsync(Path.Combine(directory, "Usage.cs"), "var a = Quark.TextSize.Sm; var b = Quark.Rounded.Top.Xl; var c = Quark.Top.Token(\"[calc(var(--header-height)+1rem)]\"); var d = Quark.TextSize.OnFocusVisible.Sm;");
+            await File.WriteAllTextAsync(Path.Combine(directory, "Usage.cs"), "var a = Quark.TextSize.Sm; var b = Quark.Rounded.Top.Xl; var c = Quark.Top.Token(\"[calc(var(--header-height)+1rem)]\"); var d = Quark.TextSize.OnFocusVisible.Sm;").NoSync();
             string output = Path.Combine(directory, "manifest.txt");
             string[] arguments = ["--projectDir", directory, "--manifestOutput", output];
             string[] expectedValues = ["text-sm", "rounded-t-xl", "top-[calc(var(--header-height)+1rem)]", "focus-visible:text-sm"];
@@ -27,15 +29,15 @@ public sealed class NativeExecutableTests
                 var start = new ProcessStartInfo(executable) { UseShellExecute = false };
                 foreach (string argument in arguments) start.ArgumentList.Add(argument);
                 using var process = Process.Start(start) ?? throw new Exception("Native tool could not start.");
-                await process.WaitForExitAsync();
+                await process.WaitForExitAsync().NoSync();
                 if (process.ExitCode != 0) throw new Exception("Native tool failed: " + process.ExitCode);
             }
-            await Run();
-            string content = await File.ReadAllTextAsync(output);
+            await Run().NoSync();
+            string content = await File.ReadAllTextAsync(output).NoSync();
             foreach (string expected in expectedValues)
                 if (!content.Contains(expected, StringComparison.Ordinal)) throw new Exception("Native output is missing " + expected);
             DateTime timestamp = File.GetLastWriteTimeUtc(output);
-            await Run();
+            await Run().NoSync();
             if (File.GetLastWriteTimeUtc(output) != timestamp) throw new Exception("Unchanged native output was rewritten.");
         }
         finally { Directory.Delete(directory, recursive: true); }

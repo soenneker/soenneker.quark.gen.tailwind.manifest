@@ -128,7 +128,7 @@ public sealed class QuarkTailwindManifestGeneratorTests : UnitTest
 
     private static object BuildSegmentList(Type generatorType, params (string Name, string[] Args)[] segments)
     {
-        Type segmentType = generatorType.GetNestedType("ChainSegment", BindingFlags.NonPublic)!;
+        Type segmentType = generatorType.Assembly.GetType(generatorType.Namespace + ".ChainSegment", throwOnError: true)!;
         Type listType = typeof(List<>).MakeGenericType(segmentType);
         var list = (IList) Activator.CreateInstance(listType)!;
 

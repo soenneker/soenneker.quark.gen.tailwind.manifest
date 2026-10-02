@@ -18,5 +18,8 @@
     <ItemGroup>
         <PackageReference Include="AwesomeAssertions" Version="9.6.0" />
     </ItemGroup>
+    <ItemGroup>
+        <Compile Include="../../src/Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/ProjectFileEnumerator.cs" Link="ProjectFileEnumerator.cs" />
+    </ItemGroup>
 </Project>
 
