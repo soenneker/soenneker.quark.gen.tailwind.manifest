@@ -12,7 +12,7 @@ namespace Soenneker.Quark.Gen.Tailwind.Manifest.Tests;
 public sealed class ManifestPipelineTests
 {
     [Test]
-    public async Task Batches_preserve_classes_and_unchanged_outputs()
+    public async Task Batches_preserve_classes_and_unchanged_outputs(CancellationToken cancellationToken)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -25,14 +25,14 @@ public sealed class ManifestPipelineTests
         {
             for (var i = 1; i <= 17; i++)
                 await File.WriteAllTextAsync(Path.Combine(root, "Input" + i + (i % 2 == 0 ? ".cs" : ".razor")),
-                    "var value = Quark.Width.Token(\"[" + i + "px]\"); var other = TextSize.Sm; service.Call(Quark.TextSize.OnHover.Lg).Value;").NoSync();
+                    "var value = Quark.Width.Token(\"[" + i + "px]\"); var other = TextSize.Sm; service.Call(Quark.TextSize.OnHover.Lg).Value;", cancellationToken: cancellationToken).NoSync();
             Directory.CreateDirectory(Path.Combine(root, "node_modules"));
-            await File.WriteAllTextAsync(Path.Combine(root, "node_modules", "Excluded.cs"), "Quark.TextSize.OnHover.Lg;").NoSync();
+            await File.WriteAllTextAsync(Path.Combine(root, "node_modules", "Excluded.cs"), "Quark.TextSize.OnHover.Lg;", cancellationToken: cancellationToken).NoSync();
             string output = Path.Combine(root, "manifest.txt");
             string[] args = ["--projectDir", root, "--manifestOutput", output];
-            if (await runner.Run(args, CancellationToken.None).NoSync() != 0)
+            if (await runner.Run(args, cancellationToken).NoSync() != 0)
                 throw new Exception("Generation failed.");
-            string text = await File.ReadAllTextAsync(output).NoSync();
+            string text = await File.ReadAllTextAsync(output, cancellationToken: cancellationToken).NoSync();
             for (var i = 1; i <= 17; i++)
                 if (!text.Contains("w-[" + i + "px]", StringComparison.Ordinal))
                     throw new Exception("A batched source file was missed.");
@@ -41,8 +41,8 @@ public sealed class ManifestPipelineTests
 
             File.SetLastWriteTimeUtc(output, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
             DateTime timestamp = File.GetLastWriteTimeUtc(output);
-            await runner.Run(args, CancellationToken.None).NoSync();
-            if (await File.ReadAllTextAsync(output).NoSync() != text || File.GetLastWriteTimeUtc(output) != timestamp)
+            await runner.Run(args, cancellationToken).NoSync();
+            if (await File.ReadAllTextAsync(output, cancellationToken: cancellationToken).NoSync() != text || File.GetLastWriteTimeUtc(output) != timestamp)
                 throw new Exception("Unchanged output was rewritten.");
 
             using var cancellation = new CancellationTokenSource();
