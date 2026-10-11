@@ -16,7 +16,7 @@
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
         <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.12" />
         <PackageReference Include="Soenneker.Quark.Builders" Version="4.0.314" />
-        <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.950" />
+        <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.951" />
         <PackageReference Include="Soenneker.Utils.File" Version="4.0.2292" />
     </ItemGroup>
     <ItemGroup>
