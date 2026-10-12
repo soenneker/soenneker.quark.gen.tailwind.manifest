@@ -15,21 +15,20 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
         <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.12" />
-        <PackageReference Include="Soenneker.Quark.Builders" Version="4.0.319" />
+        <PackageReference Include="Soenneker.Quark.Builders" Version="4.0.322" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.951" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2292" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2299" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.125" />
+        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.126" />
     </ItemGroup>
     <!-- Fluent chains reflect over the known builder library; preserve its callable members. -->
     <Target Name="PreserveQuarkBuilderAssemblies" BeforeTargets="ComputeIlcCompileInputs;PrepareForILLink" DependsOnTargets="ResolveReferences">
         <ItemGroup>
-            <TrimmerRootAssembly Include="%(ReferencePath.Filename)"
-                                 Condition="$([System.String]::Copy('%(ReferencePath.Filename)').StartsWith('Soenneker.Quark.'))" />
+            <TrimmerRootAssembly Include="%(ReferencePath.Filename)" Condition="$([System.String]::Copy('%(ReferencePath.Filename)').StartsWith('Soenneker.Quark.'))" />
         </ItemGroup>
     </Target>
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2735" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2738" />
     </ItemGroup>
 </Project>
