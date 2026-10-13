@@ -20,7 +20,7 @@
         <PackageReference Include="Soenneker.Utils.File" Version="4.0.2299" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.126" />
+        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.127" />
     </ItemGroup>
     <!-- Fluent chains reflect over the known builder library; preserve its callable members. -->
     <Target Name="PreserveQuarkBuilderAssemblies" BeforeTargets="ComputeIlcCompileInputs;PrepareForILLink" DependsOnTargets="ResolveReferences">
