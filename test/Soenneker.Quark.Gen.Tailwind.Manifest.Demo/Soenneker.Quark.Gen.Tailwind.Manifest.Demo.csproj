@@ -7,8 +7,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.13" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.13" PrivateAssets="all" />
     </ItemGroup>
 
     <ItemGroup>
@@ -18,7 +18,7 @@
 
     <Import Project="..\..\src\Soenneker.Quark.Gen.Tailwind.Manifest\Soenneker.Quark.Gen.Tailwind.Manifest.targets" />
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Components" Version="10.0.12" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
+        <PackageReference Include="Microsoft.AspNetCore.Components" Version="10.0.13" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.13" />
     </ItemGroup>
 </Project>
