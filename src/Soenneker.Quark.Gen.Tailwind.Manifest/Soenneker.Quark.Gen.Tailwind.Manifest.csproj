@@ -57,7 +57,7 @@
 
     <ItemGroup>
         <!-- Keep the compile-time API compatible with SDK 10.0.1xx; the compiler supplies Roslyn at runtime. -->
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" PrivateAssets="all" />
     </ItemGroup>
     <PropertyGroup>
         <QuarkTailwindManifestNativeRuntimeIdentifier Condition="'$(QuarkTailwindManifestNativeRuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</QuarkTailwindManifestNativeRuntimeIdentifier>
@@ -66,27 +66,21 @@
         <_QuarkTailwindManifestNativeExecutable Condition="$([System.String]::Copy('$(QuarkTailwindManifestNativeRuntimeIdentifier)').StartsWith('win-'))">$(_QuarkTailwindManifestNativeExecutable).exe</_QuarkTailwindManifestNativeExecutable>
     </PropertyGroup>
 
-    <Target Name="BuildBuildTasksTool" BeforeTargets="Build"
-            Condition="'$(QuarkTailwindManifestUsePrebuiltNativeTools)' != 'true'"
-            Inputs="@(QuarkTailwindManifestNativeSource);../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/obj/project.assets.json"
-            Outputs="$(QuarkTailwindManifestNativeArtifactsDir)/$(QuarkTailwindManifestNativeRuntimeIdentifier)/$(_QuarkTailwindManifestNativeExecutable)">
+    <Target Name="BuildBuildTasksTool" BeforeTargets="Build" Condition="'$(QuarkTailwindManifestUsePrebuiltNativeTools)' != 'true'" Inputs="@(QuarkTailwindManifestNativeSource);../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/obj/project.assets.json" Outputs="$(QuarkTailwindManifestNativeArtifactsDir)/$(QuarkTailwindManifestNativeRuntimeIdentifier)/$(_QuarkTailwindManifestNativeExecutable)">
         <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)/../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.csproj&quot; --configuration Release --runtime $(QuarkTailwindManifestNativeRuntimeIdentifier) --output &quot;$(QuarkTailwindManifestNativeArtifactsDir)/$(QuarkTailwindManifestNativeRuntimeIdentifier)&quot;" />
     </Target>
 
     <ItemGroup>
-        <QuarkTailwindManifestNativeSource Include="../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/**/*.cs;../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/*.csproj"
-                             Exclude="../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/bin/**;../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/obj/**" />
+        <QuarkTailwindManifestNativeSource Include="../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/**/*.cs;../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/*.csproj" Exclude="../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/bin/**;../Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks/obj/**" />
     </ItemGroup>
 
     <Target Name="AddBuildTasksOutputToPackage" DependsOnTargets="BuildBuildTasksTool">
         <ItemGroup>
             <_QuarkTailwindManifestRequiredRuntime Include="win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64" Condition="'$(QuarkTailwindManifestUsePrebuiltNativeTools)' == 'true'" />
-            <_QuarkTailwindManifestNativeFile Include="$(QuarkTailwindManifestNativeArtifactsDir)/**/*"
-                                Exclude="$(QuarkTailwindManifestNativeArtifactsDir)/**/*.pdb;$(QuarkTailwindManifestNativeArtifactsDir)/**/*.dbg;$(QuarkTailwindManifestNativeArtifactsDir)/**/*.dSYM/**" />
+            <_QuarkTailwindManifestNativeFile Include="$(QuarkTailwindManifestNativeArtifactsDir)/**/*" Exclude="$(QuarkTailwindManifestNativeArtifactsDir)/**/*.pdb;$(QuarkTailwindManifestNativeArtifactsDir)/**/*.dbg;$(QuarkTailwindManifestNativeArtifactsDir)/**/*.dSYM/**" />
             <TfmSpecificPackageFile Include="@(_QuarkTailwindManifestNativeFile)" PackagePath="tools/native/" />
         </ItemGroup>
-        <Error Condition="'@(_QuarkTailwindManifestRequiredRuntime)' != '' and !Exists('$(QuarkTailwindManifestNativeArtifactsDir)/%(_QuarkTailwindManifestRequiredRuntime.Identity)/Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks') and !Exists('$(QuarkTailwindManifestNativeArtifactsDir)/%(_QuarkTailwindManifestRequiredRuntime.Identity)/Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.exe')"
-               Text="Missing native tailwind.manifest tool for %(_QuarkTailwindManifestRequiredRuntime.Identity)." />
+        <Error Condition="'@(_QuarkTailwindManifestRequiredRuntime)' != '' and !Exists('$(QuarkTailwindManifestNativeArtifactsDir)/%(_QuarkTailwindManifestRequiredRuntime.Identity)/Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks') and !Exists('$(QuarkTailwindManifestNativeArtifactsDir)/%(_QuarkTailwindManifestRequiredRuntime.Identity)/Soenneker.Quark.Gen.Tailwind.Manifest.BuildTasks.exe')" Text="Missing native tailwind.manifest tool for %(_QuarkTailwindManifestRequiredRuntime.Identity)." />
         <Error Condition="'@(_QuarkTailwindManifestNativeFile)' == ''" Text="Native tailwind.manifest tools are missing. Publish BuildTasks before packing." />
     </Target>
 </Project>
