@@ -53,4 +53,9 @@
               Command='&quot;$(QuarkTailwindManifestBuildTasksExecutablePath)&quot; --projectDir &quot;$(_QuarkTailwindManifestProjectDir)&quot;$(_QuarkTailwindManifestOutputArg)' />
         <Touch Files="$(QuarkTailwindManifestOutput);$(_QuarkTailwindManifestStamp)" AlwaysCreate="true" />
     </Target>
+    <Target Name="ValidateSoennekerQuarkGenTailwindManifestTargetFramework" BeforeTargets="PrepareForBuild;CoreCompile"
+            Condition="'$(TargetFramework)' != '' and '$(IsCrossTargetingBuild)' != 'true'">
+        <Error Condition="'$(TargetFrameworkIdentifier)' != '.NETCoreApp' or !$([MSBuild]::VersionGreaterThanOrEquals('$(TargetFrameworkVersion)', '10.0'))"
+               Text="Soenneker.Quark.Gen.Tailwind.Manifest requires a consumer targeting .NET 10 or later. Current target: $(TargetFramework)." />
+    </Target>
 </Project>
