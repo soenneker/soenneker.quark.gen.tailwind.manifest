@@ -224,7 +224,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         }
 
         _logger.LogInformation("Writing Tailwind manifest to {OutputPath}.", outputPath);
-        await _fileUtil.Write(outputPath, contents, cancellationToken: cancellationToken).NoSync();
+        await _fileUtil.WriteAtomically(outputPath, contents, cancellationToken: cancellationToken).NoSync();
     }
 
     private async Task EnsureLocalSuiteManifest(string projectDir, string outputPath, CancellationToken cancellationToken)
@@ -254,7 +254,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
                 string contents = await _fileUtil.Read(suiteManifestPath, log: false, cancellationToken)
                                                  .NoSync();
 
-                await _fileUtil.Write(localSuiteManifestPath, contents, log: false, cancellationToken: cancellationToken)
+                await _fileUtil.WriteAtomically(localSuiteManifestPath, contents, log: false, cancellationToken: cancellationToken)
                                .NoSync();
 
                 _logger.LogInformation("Copied suite Tailwind manifest from {SourcePath} to {DestinationPath}.", suiteManifestPath,
@@ -269,7 +269,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             return;
         }
 
-        await _fileUtil.Write(localSuiteManifestPath,
+        await _fileUtil.WriteAtomically(localSuiteManifestPath,
                               "# No upstream Soenneker.Quark.Suite Tailwind manifest was resolved for this project." + Environment.NewLine,
                               log: false, cancellationToken: cancellationToken)
                        .NoSync();
