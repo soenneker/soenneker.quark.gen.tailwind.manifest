@@ -15,9 +15,9 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-rc.3.26522.148" />
         <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="11.0.0-rc.3.26522.148" />
-        <PackageReference Include="Soenneker.Quark.Builders" Version="11.0.342" />
-        <PackageReference Include="Soenneker.Utils.Directory" Version="4.0.967" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2320" />
+        <PackageReference Include="Soenneker.Quark.Builders" Version="11.0.344" />
+        <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.969" />
+        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2325" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.133" />
@@ -29,6 +29,6 @@
         </ItemGroup>
     </Target>
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2757" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2762" />
     </ItemGroup>
 </Project>
