@@ -17,7 +17,7 @@
         <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="11.0.0-rc.3.26522.148" />
         <PackageReference Include="Soenneker.Quark.Builders" Version="11.0.345" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.970" />
-        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2326" />
+        <PackageReference Include="Soenneker.Utils.File" Version="11.0.2328" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.133" />
@@ -29,6 +29,6 @@
         </ItemGroup>
     </Target>
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2766" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2769" />
     </ItemGroup>
 </Project>
