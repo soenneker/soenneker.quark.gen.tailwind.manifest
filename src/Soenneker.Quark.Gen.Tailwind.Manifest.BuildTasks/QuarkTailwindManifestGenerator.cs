@@ -1219,7 +1219,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (token.StartsWith(prefix + "-", StringComparison.Ordinal))
             return token;
 
-        if (prefix.EndsWith("-", StringComparison.Ordinal) || prefix.EndsWith(":", StringComparison.Ordinal))
+        if (prefix.EndsWith('-') || prefix.EndsWith(':'))
             return prefix + token;
 
         if (string.Equals(prefix, token, StringComparison.Ordinal))
@@ -1297,7 +1297,7 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
         if (token.IsNullOrWhiteSpace())
             return false;
 
-        if (token.StartsWith("@", StringComparison.Ordinal) && !token.StartsWith("@container", StringComparison.Ordinal))
+        if (token.StartsWith('@') && !token.StartsWith("@container", StringComparison.Ordinal))
             return false;
 
         if (token.AsSpan()
