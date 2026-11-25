@@ -718,6 +718,12 @@ public sealed partial class QuarkTailwindManifestGenerator : IQuarkTailwindManif
             return value is not null;
         }
 
+        if (targetType == typeof(int) && int.TryParse(arg, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int number))
+        {
+            value = number;
+            return true;
+        }
+
         if (TryResolveStaticMemberExpression(arg, targetType, out object? resolved))
         {
             value = resolved;

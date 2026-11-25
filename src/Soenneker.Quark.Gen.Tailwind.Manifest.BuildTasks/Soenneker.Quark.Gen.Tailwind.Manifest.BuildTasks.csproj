@@ -15,7 +15,8 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="11.0.0" />
-        <PackageReference Include="Soenneker.Quark.Builders" Version="11.0.374" />
+        <PackageReference Include="Soenneker.Quark.Builders" Version="11.0.375" Condition="'$(UseLocalQuarkBuildersProject)' != 'true'" />
+        <ProjectReference Include="../../../soenneker.quark.builders/src/Soenneker.Quark.Builders/Soenneker.Quark.Builders.csproj" Condition="'$(UseLocalQuarkBuildersProject)' == 'true'" />
         <PackageReference Include="Soenneker.Utils.Directory" Version="11.0.986" />
     </ItemGroup>
     <ItemGroup>
